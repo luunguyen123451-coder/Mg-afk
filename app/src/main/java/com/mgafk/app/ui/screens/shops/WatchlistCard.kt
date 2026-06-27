@@ -219,6 +219,12 @@ private fun AddWatchlistDialog(
             }.sortedBy { it.name }
         } ?: emptyList()
 
+        val thunderShopItems = shops.find { it.type == "thunder" }?.let { thunderShop ->
+            thunderShop.itemNames.mapNotNull { itemId ->
+                MgApi.findItem(itemId)?.takeIf { ("thunder" to itemId) !in existing }
+            }.sortedBy { it.name }
+        } ?: emptyList()
+
         mapOf(
             "seed" to MgApi.getPlants().values
                 .filter { (it.id to "seed") !in existing.map { e -> e.second to e.first } }
