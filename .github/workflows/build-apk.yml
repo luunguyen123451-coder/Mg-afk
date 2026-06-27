@@ -36,7 +36,7 @@ jobs:
 
       - name: Build Release APK
         run: |
-          ./gradlew assembleRelease --no-daemon \
+          ./gradlew assembleDebug --no-daemon \
             -Pandroid.injected.signing.store.file=$PWD/mgafk-release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
