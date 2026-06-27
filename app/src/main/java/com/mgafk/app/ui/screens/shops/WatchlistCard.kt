@@ -235,6 +235,7 @@ private fun AddWatchlistDialog(
                 .sortedBy { it.name },
             "dawn" to dawnShopItems,
             "snow" to snowShopItems,
+            "thunder" to thunderShopItems,
         )
     }
 
