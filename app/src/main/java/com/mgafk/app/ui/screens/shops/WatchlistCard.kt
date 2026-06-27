@@ -51,7 +51,7 @@ import com.mgafk.app.ui.theme.SurfaceDark
 import com.mgafk.app.ui.theme.TextMuted
 import com.mgafk.app.ui.theme.TextPrimary
 
-private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow")
+private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow", "thunder")
 
 /**
  * Card hiển thị danh sách Watchlist items.
@@ -238,8 +238,8 @@ private fun AddWatchlistDialog(
         )
     }
 
-    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow")
-    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow")
+    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow", "Thunder")
+    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow", "thunder")
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
