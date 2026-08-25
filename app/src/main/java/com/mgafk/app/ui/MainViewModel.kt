@@ -112,6 +112,7 @@ data class UiState(
     val currencyBalanceError: String? = null,
     val publicRooms: List<AriesApi.PublicRoom> = emptyList(),
     val publicRoomsLoading: Boolean = false,
+    val watchlist: List<WatchlistItem> = emptyList(),
 ) {
     val activeSession: Session
         get() = sessions.find { it.id == activeSessionId } ?: sessions.first()
@@ -164,7 +165,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
         viewModelScope.launch {
             val sessions = repo.loadSessions()
-            val watchlist = repo.loadWatchlist().ifEmpty { listOf(Session()) }
+            val watchlist = repo.loadWatchlist()
             val activeId = repo.loadActiveSessionId() ?: sessions.first().id
             val alerts = repo.loadAlerts()
             val collapsedCards = repo.loadCollapsedCards()
@@ -201,6 +202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showEggTip = !eggTipDismissed,
                 showPlantTip = !plantTipDismissed,
                 settings = settings,
+                watchlist = watchlist,
             )
             // Collect service logs (wake lock events etc.)
             launch {
