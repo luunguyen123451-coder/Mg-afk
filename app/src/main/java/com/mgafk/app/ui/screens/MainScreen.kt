@@ -696,7 +696,9 @@ private fun SectionContent(
             WatchlistCard(
                 watchlist = state.watchlist,
                 shops = session.shops,
-                onAdd = { shopType, itemId -> viewModel.addWatchlistItem(shopType, itemId)
+                onAdd = { shopType, itemId -> viewModel.addWatchlistItem(shopType, itemId) },
+                onRemove = { shopType, itemId -> viewModel.removeWatchlistItem(shopType, itemId) },
+            )
         }
         NavSection.STORAGE -> {
             SectionTip(
