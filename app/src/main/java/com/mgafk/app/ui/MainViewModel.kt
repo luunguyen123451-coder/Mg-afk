@@ -2235,6 +2235,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingPurchaseJobs.remove(key)?.cancel()
                 }
                 updateSession(sessionId) { it.copy(shops = newShops) }
+                // Watchlist: auto-buy items on restock
+                if (restockedTypes.isNotEmpty()) {
+                    val actions = clients[sessionId]?.actions
+                    if (actions != null) {
+                        val mgr = watchlistManagers.getOrPut(sessionId) {
+                            WatchlistManager(
+                                sessionId = sessionId,
+                                onBought = { shopType, itemId, qty ->
+                                    AppLog.d("MainViewModel", "[$sessionId] Watchlist bought: $shopType/$itemId x$qty")
+                                },
+                                onLog = { message ->
+                                    updateSession(sessionId) { s ->
+                                        val entry = com.mgafk.app.data.model.WsLog(
+                                            timestamp = System.currentTimeMillis(),
+                                            level = "INFO",
+                                            event = "Watchlist",
+                                            detail = message,
+                                        )
+                                        s.copy(wsLogs = (listOf(entry) + s.wsLogs).take(100))
+                                    }
+                                },
+                            )
+                        }
+                        mgr.setItems(_state.value.watchlist)
+                        viewModelScope.launch { mgr.onShopsUpdated(newShops, actions) }
+                    }
+                }
                 // Only check alerts when actual items changed, not just the restock timer. A
                 // restock counts as a change even when it rolled the same items: the stock behind
                 // them is new, so it has to alert again.

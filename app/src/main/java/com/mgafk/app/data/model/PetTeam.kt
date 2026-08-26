@@ -2,6 +2,7 @@ package com.mgafk.app.data.model
 
 import kotlinx.serialization.Serializable
 import java.util.UUID
+// TeamTrigger imported from same package
 
 @Serializable
 data class PetTeam(
@@ -10,6 +11,7 @@ data class PetTeam(
     val petIds: List<String> = listOf("", "", ""),
     val petSpecies: List<String> = listOf("", "", ""),
     val petNames: List<String> = listOf("", "", ""),
+    val triggers: List<TeamTrigger> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
