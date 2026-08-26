@@ -47,6 +47,22 @@ android {
         checkReleaseBuilds = false
         abortOnError = false
     }
+
+    packaging {
+        resources {
+            // Ktor/Netty ships multiple jars that each contain META-INF/INDEX.LIST,
+            // io.netty.versions.properties, etc. Pick the first one found.
+            pickFirsts += listOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+            )
+        }
+    }
 }
 
 dependencies {
