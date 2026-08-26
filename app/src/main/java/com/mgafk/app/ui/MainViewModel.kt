@@ -113,7 +113,6 @@ data class UiState(
     val publicRooms: List<AriesApi.PublicRoom> = emptyList(),
     val publicRoomsLoading: Boolean = false,
     val watchlist: List<WatchlistItem> = emptyList(),
-    val watchlist: List<WatchlistItem> = emptyList(),
 ) {
     val activeSession: Session
         get() = sessions.find { it.id == activeSessionId } ?: sessions.first()
@@ -203,7 +202,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showEggTip = !eggTipDismissed,
                 showPlantTip = !plantTipDismissed,
                 settings = settings,
-                watchlist = watchlist,
                 watchlist = watchlist,
             )
             // Collect service logs (wake lock events etc.)
