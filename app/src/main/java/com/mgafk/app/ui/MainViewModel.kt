@@ -1509,6 +1509,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateSession(sessionId) { it.copy(lastHatchedPet = null, lastHatchedEggId = "") }
     }
 
+    /** Hatch all mature eggs in the garden one by one. */
+    fun hatchAllEggs(sessionId: String) {
+        val session = _state.value.sessions.find { it.id == sessionId } ?: return
+        val matureEggs = session.gardenEggs.filter { System.currentTimeMillis() >= it.maturedAt }
+        if (matureEggs.isEmpty()) return
+        viewModelScope.launch {
+            for (egg in matureEggs) {
+                val current = _state.value.sessions.find { it.id == sessionId } ?: break
+                if (current.gardenEggs.none { it.tileId == egg.tileId }) continue
+                hatchEgg(sessionId, egg.tileId)
+                kotlinx.coroutines.delay(600L)
+            }
+        }
+    }
+
+    /** Grow all eggs of a given type from inventory. */
+    fun growAllEggs(sessionId: String, eggId: String) {
+        viewModelScope.launch {
+            val session = _state.value.sessions.find { it.id == sessionId } ?: return@launch
+            val quantity = session.inventory.eggs.find { it.eggId == eggId }?.quantity ?: 0
+            repeat(quantity) {
+                val current = _state.value.sessions.find { it.id == sessionId } ?: return@launch
+                if (current.freePlantTiles <= 0) return@launch
+                if (current.inventory.eggs.none { it.eggId == eggId && it.quantity > 0 }) return@launch
+                growEgg(sessionId, eggId)
+                kotlinx.coroutines.delay(600L)
+            }
+        }
+    }
+
     private val pendingUnpotJobs = mutableMapOf<String, Job>()
 
     /** Plant a potted plant back into the garden. */

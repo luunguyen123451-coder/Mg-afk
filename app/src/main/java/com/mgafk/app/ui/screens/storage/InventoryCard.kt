@@ -172,6 +172,7 @@ fun InventoryCard(
     decorShedDecorIds: Set<String> = emptySet(),
     onPlantSeed: (species: String) -> Unit = {},
     onGrowEgg: (eggId: String) -> Unit = {},
+    onGrowAllEggs: (eggId: String) -> Unit = {},
     onPlantGardenPlant: (itemId: String) -> Unit = {},
     onToggleLock: (itemId: String) -> Unit = {},
     onSellPet: (itemId: String) -> Unit = {},
@@ -406,6 +407,7 @@ fun InventoryCard(
                 freePlantTiles = freePlantTiles,
                 isLocked = eggId in favoritedItemIds,
                 onGrowEgg = { onGrowEgg(eggId) },
+                onGrowAll = { onGrowAllEggs(eggId) },
                 onToggleLock = { onToggleLock(eggId) },
                 onDismiss = { selectedEggId = null },
             )
@@ -1172,6 +1174,7 @@ private fun EggGrowDialog(
     freePlantTiles: Int,
     isLocked: Boolean,
     onGrowEgg: () -> Unit,
+    onGrowAll: () -> Unit = {},
     onToggleLock: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1247,6 +1250,22 @@ private fun EggGrowDialog(
                     fontWeight = FontWeight.Bold,
                     color = if (canGrow) Color.White else Color.White.copy(alpha = 0.4f),
                 )
+            }
+
+            if (canGrow && egg.quantity > 1) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { onGrowAll(); onDismiss() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6)),
+                ) {
+                    Text(
+                        "Grow All (${egg.quantity})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF8B5CF6),
+                    )
+                }
             }
 
         }

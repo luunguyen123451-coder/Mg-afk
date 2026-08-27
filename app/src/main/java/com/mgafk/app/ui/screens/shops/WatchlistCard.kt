@@ -150,6 +150,7 @@ private fun WatchlistChip(
         "egg" -> "eggs"
         "dawn" -> "plants"
         "snow" -> "plants"
+        "thunder" -> if (item.itemId.lowercase().contains("egg")) "eggs" else "plants"
         else -> "items"
     }
     val spriteUrl = MgApi.findItem(item.itemId)?.sprite?.let {
@@ -207,23 +208,59 @@ private fun AddWatchlistDialog(
 
     // Lấy toàn bộ items từ MgApi, chia theo nhóm
     val groupedItems = remember(existingWatchlist, shops) {
-        val dawnShopItems = shops.find { it.type == "dawn" }?.let { dawnShop ->
-            dawnShop.itemNames.mapNotNull { itemId ->
-                MgApi.findItem(itemId)?.takeIf { ("dawn" to itemId) !in existing }
-            }.sortedBy { it.name }
-        } ?: emptyList()
+        // Weather shops: merge live snapshot items with ALL known items from MgApi
+        // so user can add items even when the shop is currently closed
+        fun weatherItems(shopType: String): List<com.mgafk.app.data.repository.MgApi.GameEntry> {
+            val liveItems = shops.find { it.type == shopType }?.itemNames
+                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+            val allKnown = MgApi.getPlants().values.filter {
+                it.id.contains(shopType, ignoreCase = true) ||
+                liveItems.any { l -> l.id == it.id }
+            }
+            return (liveItems + allKnown)
+                .distinctBy { it.id }
+                .filter { (shopType to it.id) !in existing }
+                .sortedBy { it.name }
+        }
 
-        val snowShopItems = shops.find { it.type == "snow" }?.let { snowShop ->
-            snowShop.itemNames.mapNotNull { itemId ->
-                MgApi.findItem(itemId)?.takeIf { ("snow" to itemId) !in existing }
-            }.sortedBy { it.name }
-        } ?: emptyList()
+        val dawnShopItems = run {
+            val live = shops.find { it.type == "dawn" }?.itemNames
+                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+            live.filter { ("dawn" to it.id) !in existing }.sortedBy { it.name }
+                .ifEmpty {
+                    MgApi.getPlants().values
+                        .filter { it.id.lowercase().let { id -> id.contains("dawn") || id.contains("moon") } }
+                        .filter { ("dawn" to it.id) !in existing }
+                        .sortedBy { it.name }
+                }
+        }
 
-        val thunderShopItems = shops.find { it.type == "thunder" }?.let { thunderShop ->
-            thunderShop.itemNames.mapNotNull { itemId ->
-                MgApi.findItem(itemId)?.takeIf { ("thunder" to itemId) !in existing }
-            }.sortedBy { it.name }
-        } ?: emptyList()
+        val snowShopItems = run {
+            val live = shops.find { it.type == "snow" }?.itemNames
+                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+            live.filter { ("snow" to it.id) !in existing }.sortedBy { it.name }
+                .ifEmpty {
+                    MgApi.getPlants().values
+                        .filter { it.id.lowercase().let { id -> id.contains("snow") || id.contains("frost") || id.contains("ice") || id.contains("frozen") } }
+                        .filter { ("snow" to it.id) !in existing }
+                        .sortedBy { it.name }
+                }
+        }
+
+        val thunderShopItems = run {
+            val live = shops.find { it.type == "thunder" }?.itemNames
+                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+            // Also include eggs for Thunder Egg
+            val thunderEggs = MgApi.getEggs().values
+                .filter { it.id.lowercase().contains("thunder") }
+                .filter { ("thunder" to it.id) !in existing }
+            val thunderPlants = MgApi.getPlants().values
+                .filter { it.id.lowercase().let { id -> id.contains("thunder") || id.contains("storm") || id.contains("cattail") || id.contains("cardoon") || id.contains("prickly") || id.contains("milkcap") } }
+                .filter { ("thunder" to it.id) !in existing }
+            (live.filter { ("thunder" to it.id) !in existing } + thunderEggs + thunderPlants)
+                .distinctBy { it.id }
+                .sortedBy { it.name }
+        }
 
         mapOf(
             "seed" to MgApi.getPlants().values
@@ -348,6 +385,7 @@ private fun AddWatchlistDialog(
                                 "egg" -> "eggs"
                                 "dawn" -> "plants"
                                 "snow" -> "plants"
+                                "thunder" -> if (entry.id.lowercase().contains("egg")) "eggs" else "plants"
                                 else -> "items"
                             }
                             val spriteUrl = entry.sprite?.let {
