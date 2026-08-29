@@ -37,19 +37,25 @@ class GameActions(
     private fun room(type: String, params: JsonObject = EMPTY_OBJ) =
         send(ROOM_SCOPE, type, params)
 
+    /**
+     * Send a Quinoa action the way the game itself sends it: inside the
+     * `QuinoaCommand` envelope, unless it is one of the [RAW_MESSAGE_TYPES]
+     * the game still sends flat.
+     *
+     * The envelope is what feeds the server's prediction/rollback system, and
+     * the flat form is on its way out - but only for the actions the game has
+     * already migrated. Wrapping one it has not is a bet that the server
+     * registered it as a command, and a losing bet fails silently.
+     */
     private fun game(type: String, params: JsonObject = EMPTY_OBJ) =
-        send(GAME_SCOPE, type, params)
+        if (type in RAW_MESSAGE_TYPES) send(GAME_SCOPE, type, params)
+        else quinoaCommand(type, params)
 
     /**
-     * Send a command through the `QuinoaCommand` envelope the game now uses for
-     * a handful of actions - the ones it routes through its RPC sender rather
-     * than its plain message sender.
+     * Wrap [type] in the envelope the server expects:
+     * `{scopePath, type: "QuinoaCommand", requestId, commandSequence, command}`.
      *
-     * Exactly five commands take this path - `HarvestCrop`, `PotPlant`,
-     * `PurchaseShopItem`, plus `Preserve` and `EquipPetCosmetic` which this
-     * class doesn't expose yet. Every other action stays a plain
-     * `{scopePath, type, ...params}` message via [game]. Sending a wrapped
-     * command plain gets it rejected with
+     * Sending a command flat gets it rejected with
      * `{"type":"QuinoaCommandResult","commandType":"unknown","ok":false,"code":"invalid_message"}`
      * - the server can't even parse the command out, so the action silently
      * does nothing.
@@ -86,7 +92,9 @@ class GameActions(
     fun voteForGame(gameName: String = GAME) =
         room("VoteForGame", obj("gameName" to JsonPrimitive(gameName)))
 
-    fun restartGame() = room("RestartGame")
+    // Room-scoped, and it names the game to restart in `name` (not `gameName`).
+    fun restartGame(gameName: String = GAME) =
+        room("RestartGame", obj("name" to JsonPrimitive(gameName)))
 
     fun checkWeatherStatus() = game("CheckWeatherStatus")
 
@@ -100,11 +108,13 @@ class GameActions(
     fun emote(emoteType: String) =
         room("Emote", obj("emoteType" to JsonPrimitive(emoteType)))
 
-    fun wish(itemId: String) =
-        game("Wish", obj("itemId" to JsonPrimitive(itemId)))
+    /** Throws a coin in the wishing well. [itemId] wishes for that specific item; the game
+     * omits it entirely for an untargeted wish. */
+    fun wish(itemId: String? = null) =
+        game("Wish", if (itemId == null) EMPTY_OBJ else obj("itemId" to JsonPrimitive(itemId)))
 
-    fun kickPlayer(playerId: String) =
-        room("KickPlayer", obj("playerId" to JsonPrimitive(playerId)))
+    fun kickPlayer(targetPlayerId: String) =
+        room("KickPlayer", obj("targetPlayerId" to JsonPrimitive(targetPlayerId)))
 
     fun setPlayerData(name: String? = null, cosmetic: JsonElement? = null) {
         val params = buildJsonObject {
@@ -114,9 +124,10 @@ class GameActions(
         room("SetPlayerData", params)
     }
 
-    fun usurpHost() = game("UsurpHost")
+    fun usurpHost() = room("UsurpHost")
 
-    fun reportSpeakingStart() = game("ReportSpeakingStart")
+    fun markChatRead(seq: Int) =
+        room("MarkChatRead", obj("seq" to JsonPrimitive(seq)))
 
     // =====================
     // Movement
@@ -167,7 +178,7 @@ class GameActions(
                 put(idField, JsonPrimitive(itemId))
             })
         }
-        quinoaCommand("PurchaseShopItem", params)
+        game("PurchaseShopItem", params)
     }
 
     // =====================
@@ -185,7 +196,7 @@ class GameActions(
             put("slot", JsonPrimitive(slot))
             if (slotsIndex != null) put("slotsIndex", JsonPrimitive(slotsIndex))
         }
-        quinoaCommand("HarvestCrop", params)
+        game("HarvestCrop", params)
     }
 
     fun sellAllCrops() = game("SellAllCrops")
@@ -193,8 +204,19 @@ class GameActions(
     fun plantGardenPlant(slot: Int, itemId: String) =
         game("PlantGardenPlant", obj("slot" to JsonPrimitive(slot), "itemId" to JsonPrimitive(itemId)))
 
-    fun potPlant(slot: Int) =
-        quinoaCommand("PotPlant", obj("slot" to JsonPrimitive(slot)))
+    /**
+     * Pots the plant standing on [slot], moving it into the inventory as a Plant item.
+     *
+     * [plantItemId] is the id that new inventory item will carry: the client mints it and the
+     * server honours it, which is what lets the caller reference the pot right away (to plant
+     * it back with [plantGardenPlant], say) instead of waiting for the inventory patch. The
+     * server rejects a PotPlant without it.
+     */
+    fun potPlant(slot: Int, plantItemId: String = UUID.randomUUID().toString()) =
+        game("PotPlant", obj(
+            "slot" to JsonPrimitive(slot),
+            "plantItemId" to JsonPrimitive(plantItemId),
+        ))
 
     fun mutationPotion(tileObjectIdx: Int, growSlotIdx: Int, mutation: String) =
         game("MutationPotion", obj(
@@ -211,6 +233,24 @@ class GameActions(
 
     fun removeGardenObject(slot: Int, slotType: String) =
         game("RemoveGardenObject", obj("slot" to JsonPrimitive(slot), "slotType" to JsonPrimitive(slotType)))
+
+    /** Turns the harvested crop [itemId] into a preserve at the Preservation Station. */
+    fun preserve(itemId: String, growSlotIdx: Int) =
+        game("Preserve", obj("itemId" to JsonPrimitive(itemId), "growSlotIdx" to JsonPrimitive(growSlotIdx)))
+
+    /** Puts a harvested crop on display on a garden or boardwalk tile. */
+    fun displayCrop(tileType: String, localTileIndex: Int, itemId: String) =
+        game("DisplayCrop", obj(
+            "tileType" to JsonPrimitive(tileType),
+            "localTileIndex" to JsonPrimitive(localTileIndex),
+            "itemId" to JsonPrimitive(itemId),
+        ))
+
+    fun pickupDisplayedCrop(tileType: String, localTileIndex: Int) =
+        game("PickupDisplayedCrop", obj(
+            "tileType" to JsonPrimitive(tileType),
+            "localTileIndex" to JsonPrimitive(localTileIndex),
+        ))
 
     // =====================
     // Decor
@@ -250,8 +290,50 @@ class GameActions(
     fun feedPet(petItemId: String, cropItemId: String) =
         game("FeedPet", obj("petItemId" to JsonPrimitive(petItemId), "cropItemId" to JsonPrimitive(cropItemId)))
 
+    /** Consumes one Replenish Potion to fully restore [petItemId]'s hunger. Requires the
+     * player to be standing on the pet's tile (see [teleport]). */
+    fun useReplenishPotion(petItemId: String) =
+        game("ReplenishPotion", obj("petItemId" to JsonPrimitive(petItemId)))
+
     fun sellPet(itemId: String) =
         game("SellPet", obj("itemId" to JsonPrimitive(itemId)))
+
+    /** Mounts [petItemId] - required before [dawnCapture] (or any other rideable ability). */
+    fun ridePet(petItemId: String) =
+        game("RidePet", obj("petItemId" to JsonPrimitive(petItemId)))
+
+    fun dismountPet() = game("DismountPet")
+
+    /** Triggers the Ostrich's Dawn Capture ability at [x]/[y] (tile-grid coords). Requires
+     * riding [petItemId] and being off cooldown. */
+    fun dawnCapture(petItemId: String, x: Double, y: Double) =
+        game("DawnCapture", obj(
+            "petItemId" to JsonPrimitive(petItemId),
+            "position" to position(x, y),
+        ))
+
+    /** Consumes one XP Potion to level [petItemId] up. */
+    fun xpPotion(petItemId: String) =
+        game("XPPotion", obj("petItemId" to JsonPrimitive(petItemId)))
+
+    /** Triggers the Thundercharger's ability at [x]/[y] (tile-grid coords). Requires riding
+     * [petItemId] and being off cooldown. */
+    fun thundercharge(petItemId: String, x: Double, y: Double) =
+        game("Thundercharge", obj(
+            "petItemId" to JsonPrimitive(petItemId),
+            "position" to position(x, y),
+        ))
+
+    /** Asks nearby pets to greet the player at [x]/[y]. */
+    fun requestPetGreet(x: Double, y: Double) =
+        game("RequestPetGreet", obj("position" to position(x, y)))
+
+    fun equipPetCosmetic(petItemId: String, slotCategory: String, cosmeticId: String) =
+        game("EquipPetCosmetic", obj(
+            "petItemId" to JsonPrimitive(petItemId),
+            "slotCategory" to JsonPrimitive(slotCategory),
+            "cosmeticId" to JsonPrimitive(cosmeticId),
+        ))
 
     fun upgradePetHutch() = game("UpgradePetHutch")
 
@@ -275,14 +357,39 @@ class GameActions(
     fun movePetSlot(movePetSlotId: String, toPetSlotIndex: Int) =
         game("MovePetSlot", obj("movePetSlotId" to JsonPrimitive(movePetSlotId), "toPetSlotIndex" to JsonPrimitive(toPetSlotIndex)))
 
-    fun petPositions(petPositions: JsonElement) =
-        game("PetPositions", obj("petPositions" to petPositions))
-
     fun growEgg(slot: Int, eggId: String) =
         game("GrowEgg", obj("slot" to JsonPrimitive(slot), "eggId" to JsonPrimitive(eggId)))
 
     fun hatchEgg(slot: Int) =
         game("HatchEgg", obj("slot" to JsonPrimitive(slot)))
+
+    // =====================
+    // Pet teams
+    // =====================
+
+    /** [isCreate] tells the server this is a brand new team rather than an edit of [teamId]. */
+    fun savePetTeam(teamId: String, name: String, petIds: List<String>, isCreate: Boolean) =
+        game("SavePetTeam", obj(
+            "teamId" to JsonPrimitive(teamId),
+            "isCreate" to JsonPrimitive(isCreate),
+            "name" to JsonPrimitive(name),
+            "petIds" to buildJsonArray { petIds.forEach { add(JsonPrimitive(it)) } },
+        ))
+
+    fun applyPetTeam(teamId: String) =
+        game("ApplyPetTeam", obj("teamId" to JsonPrimitive(teamId)))
+
+    fun deletePetTeam(teamId: String) =
+        game("DeletePetTeam", obj("teamId" to JsonPrimitive(teamId)))
+
+    fun movePetTeam(movePetTeamId: String, toPetTeamIndex: Int) =
+        game("MovePetTeam", obj(
+            "movePetTeamId" to JsonPrimitive(movePetTeamId),
+            "toPetTeamIndex" to JsonPrimitive(toPetTeamIndex),
+        ))
+
+    fun setPetTeamEmblem(teamId: String, emblem: String) =
+        game("SetPetTeamEmblem", obj("teamId" to JsonPrimitive(teamId), "emblem" to JsonPrimitive(emblem)))
 
     // =====================
     // Inventory / Storage
@@ -297,12 +404,16 @@ class GameActions(
     fun toggleLockItem(itemId: String) =
         game("ToggleLockItem", obj("itemId" to JsonPrimitive(itemId)))
 
-    fun dropObject(slotIndex: Int) =
-        game("DropObject", obj("slotIndex" to JsonPrimitive(slotIndex)))
+    // Both act on whatever the player is currently holding or standing on, so
+    // the game sends them without any parameter - an extra field would only get
+    // the command rejected as malformed.
+    fun dropObject() = game("DropObject")
 
-    fun pickupObject(objectId: String) =
-        game("PickupObject", obj("objectId" to JsonPrimitive(objectId)))
+    fun pickupObject() = game("PickupObject")
 
+    // toStorageIndex and quantity are both optional on the wire: the game leaves the index out
+    // when the item goes to the end of the storage, and only sends a quantity when moving part
+    // of a stack.
     fun putItemInStorage(itemId: String, storageId: String, toStorageIndex: Int? = null, quantity: Int? = null) {
         val params = buildJsonObject {
             put("itemId", JsonPrimitive(itemId))
@@ -330,6 +441,36 @@ class GameActions(
             "toStorageIndex" to JsonPrimitive(toStorageIndex),
         ))
 
+    /**
+     * Exchanges an inventory item for a stored one in a single action, which keeps both
+     * capacities unchanged (unlike a retrieve followed by a put).
+     *
+     * [draggedQuantity] splits a stack: the game only sends it when the player drags part of
+     * one, and always alongside [draggedFromInventory] (which side the drag started on).
+     */
+    fun swapItemWithStorage(
+        storageId: String,
+        inventoryItemId: String,
+        storageItemId: String,
+        toStorageIndex: Int? = null,
+        toInventoryIndex: Int? = null,
+        draggedQuantity: Int? = null,
+        draggedFromInventory: Boolean = false,
+    ) {
+        val params = buildJsonObject {
+            put("storageId", JsonPrimitive(storageId))
+            put("inventoryItemId", JsonPrimitive(inventoryItemId))
+            put("storageItemId", JsonPrimitive(storageItemId))
+            if (toStorageIndex != null) put("toStorageIndex", JsonPrimitive(toStorageIndex))
+            if (toInventoryIndex != null) put("toInventoryIndex", JsonPrimitive(toInventoryIndex))
+            if (draggedQuantity != null) {
+                put("draggedQuantity", JsonPrimitive(draggedQuantity))
+                put("draggedFromInventory", JsonPrimitive(draggedFromInventory))
+            }
+        }
+        game("SwapItemWithStorage", params)
+    }
+
     fun logItems() = game("LogItems")
 
     // =====================
@@ -339,6 +480,8 @@ class GameActions(
     fun throwSnowball() = game("ThrowSnowball")
 
     fun checkFriendBonus() = game("CheckFriendBonus")
+
+    fun quinoaTutorialSkipped() = game("QuinoaTutorialSkipped")
 
     // =====================
     // Helpers
@@ -357,6 +500,33 @@ class GameActions(
 
         /** Envelope `type` for the commands that go through [quinoaCommand]. */
         private const val COMMAND_ENVELOPE = "QuinoaCommand"
+
+        /**
+         * Quinoa messages the game still sends flat, as of client version 1029.
+         *
+         * `Ping` answers Pong and `PlayerPosition` feeds the movement snapshot channel, so
+         * those two are not commands by nature; the rest simply have not been migrated yet.
+         * The game is moving them across one release at a time, so re-derive this list from
+         * the bundle when a newly muted action shows up: the flat sender is
+         * `sendMessage({scopePath:["Room","Quinoa"], ...msg})`, the command sender wraps the
+         * message in a `QuinoaCommand` envelope.
+         */
+        private val RAW_MESSAGE_TYPES = setOf(
+            "Ping",
+            "PlayerPosition",
+            "Teleport",
+            "SetSelectedItem",
+            "CheckWeatherStatus",
+            "CheckFriendBonus",
+            "ThrowSnowball",
+            "QuinoaTutorialSkipped",
+            "RequestPetGreet",
+            "DropObject",
+            "PickupObject",
+            "UpgradePetHutch",
+            "UpgradeSeedSilo",
+            "UpgradeDecorShed",
+        )
 
         private fun obj(vararg pairs: Pair<String, JsonElement>): JsonObject =
             JsonObject(mapOf(*pairs))

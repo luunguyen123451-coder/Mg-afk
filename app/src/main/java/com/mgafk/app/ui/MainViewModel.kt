@@ -164,7 +164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .build()
         connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
         viewModelScope.launch {
-            val sessions = repo.loadSessions()
+            val sessions = repo.loadSessions().ifEmpty { listOf(Session()) }
             val watchlist = repo.loadWatchlist()
             val activeId = repo.loadActiveSessionId() ?: sessions.first().id
             val alerts = repo.loadAlerts()
