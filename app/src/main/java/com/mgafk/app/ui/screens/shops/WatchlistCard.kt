@@ -150,9 +150,22 @@ private fun WatchlistChip(
         "egg" -> "eggs"
         "dawn" -> "plants"
         "snow" -> "plants"
-        "thunder" -> if (item.itemId.lowercase().contains("egg")) "eggs" else "plants"
-        "amber" -> if (item.itemId.lowercase().contains("egg")) "eggs" else "plants"
-        "rain" -> "plants"
+        "thunder" -> when {
+            item.itemId.lowercase().contains("egg") -> "eggs"
+            item.itemId.lowercase().let { it.contains("ward") || it.contains("shard") } -> "items"
+            else -> "plants"
+        }
+        "amber" -> when {
+            item.itemId.lowercase().contains("egg") -> "eggs"
+            item.itemId.lowercase().let { it.contains("shard") || it.contains("capsule") || it.contains("hunger") || it.contains("strength") } -> "items"
+            else -> "plants"
+        }
+        "snow" -> when {
+            item.itemId.lowercase().contains("egg") -> "eggs"
+            item.itemId.lowercase().contains("ward") -> "items"
+            else -> "plants"
+        }
+        "rain" -> if (item.itemId.lowercase().contains("ward")) "items" else "plants"
         else -> "items"
     }
     val spriteUrl = MgApi.findItem(item.itemId)?.sprite?.let {
@@ -225,85 +238,102 @@ private fun AddWatchlistDialog(
                 .sortedBy { it.name }
         }
 
-        val dawnShopItems = run {
-            val live = shops.find { it.type == "dawn" }?.itemNames
+        // Helper: merge live shop items + fallback keyword list
+        fun liveOrFallback(
+            type: String,
+            eggKeywords: List<String> = emptyList(),
+            plantKeywords: List<String> = emptyList(),
+            itemKeywords: List<String> = emptyList(),
+        ): List<MgApi.GameEntry> {
+            val live = shops.find { it.type == type }?.itemNames
                 ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
-            live.filter { ("dawn" to it.id) !in existing }.sortedBy { it.name }
-                .ifEmpty {
-                    MgApi.getPlants().values
-                        .filter { it.id.lowercase().let { id -> id.contains("dawn") || id.contains("moon") } }
-                        .filter { ("dawn" to it.id) !in existing }
-                        .sortedBy { it.name }
-                }
+            val liveFiltered = live.filter { (type to it.id) !in existing }
+            if (liveFiltered.isNotEmpty()) return liveFiltered.sortedBy { it.name }
+            // Shop closed — show known items by keyword
+            val eggs = if (eggKeywords.isEmpty()) emptyList() else
+                MgApi.getEggs().values.filter { e ->
+                    eggKeywords.any { k -> e.id.lowercase().contains(k) }
+                }.filter { (type to it.id) !in existing }
+            val plants = if (plantKeywords.isEmpty()) emptyList() else
+                MgApi.getPlants().values.filter { p ->
+                    plantKeywords.any { k -> p.id.lowercase().contains(k) }
+                }.filter { (type to it.id) !in existing }
+            val items = if (itemKeywords.isEmpty()) emptyList() else
+                MgApi.getItems().values.filter { i ->
+                    itemKeywords.any { k -> i.id.lowercase().contains(k) }
+                }.filter { (type to it.id) !in existing }
+            return (eggs + plants + items).distinctBy { it.id }.sortedBy { it.name }
         }
 
-        val snowShopItems = run {
-            val live = shops.find { it.type == "snow" }?.itemNames
-                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
-            live.filter { ("snow" to it.id) !in existing }.sortedBy { it.name }
-                .ifEmpty {
-                    MgApi.getPlants().values
-                        .filter { it.id.lowercase().let { id -> id.contains("snow") || id.contains("frost") || id.contains("ice") || id.contains("frozen") } }
-                        .filter { ("snow" to it.id) !in existing }
-                        .sortedBy { it.name }
-                }
-        }
-
-        val thunderShopItems = run {
-            val live = shops.find { it.type == "thunder" }?.itemNames
-                ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
-            // Also include eggs for Thunder Egg
-            val thunderEggs = MgApi.getEggs().values
-                .filter { it.id.lowercase().contains("thunder") }
-                .filter { ("thunder" to it.id) !in existing }
-            val thunderPlants = MgApi.getPlants().values
-                .filter { it.id.lowercase().let { id -> id.contains("thunder") || id.contains("storm") || id.contains("cattail") || id.contains("cardoon") || id.contains("prickly") || id.contains("milkcap") } }
-                .filter { ("thunder" to it.id) !in existing }
-            (live.filter { ("thunder" to it.id) !in existing } + thunderEggs + thunderPlants)
-                .distinctBy { it.id }
-                .sortedBy { it.name }
-        }
+        // Egg shop: chỉ Common/Uncommon/Rare/Legendary/Mythical/Divine (không có weather eggs)
+        val weatherEggKeywords = listOf("dawn", "snow", "thunder", "amber", "rain", "frost")
+        val regularEggs = MgApi.getEggs().values
+            .filter { e -> weatherEggKeywords.none { k -> e.id.lowercase().contains(k) } }
+            .filter { ("egg" to it.id) !in existing }
+            .sortedBy { it.name }
 
         mapOf(
             "seed" to MgApi.getPlants().values
-                .filter { (it.id to "seed") !in existing.map { e -> e.second to e.first } }
-                .let { _ ->
-                    MgApi.getPlants().values
-                        .filter { entry -> ("seed" to entry.id) !in existing }
-                        .sortedBy { it.name }
-                },
+                .filter { ("seed" to it.id) !in existing }
+                .sortedBy { it.name },
             "tool" to MgApi.getItems().values
                 .filter { ("tool" to it.id) !in existing }
                 .sortedBy { it.name },
-            "egg" to MgApi.getEggs().values
-                .filter { ("egg" to it.id) !in existing }
-                .sortedBy { it.name },
-            "dawn" to dawnShopItems,
-            "snow" to snowShopItems,
-            "thunder" to thunderShopItems,
-            "amber" to run {
-                val live = shops.find { it.type == "amber" }?.itemNames
-                    ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
-                val amberEggs = MgApi.getEggs().values
-                    .filter { it.id.lowercase().let { id -> id.contains("amber") } }
-                    .filter { ("amber" to it.id) !in existing }
-                val amberPlants = MgApi.getPlants().values
-                    .filter { it.id.lowercase().let { id -> id.contains("ember") || id.contains("amber") || id.contains("persimmon") || id.contains("habanero") || id.contains("marigold") } }
-                    .filter { ("amber" to it.id) !in existing }
-                (live.filter { ("amber" to it.id) !in existing } + amberEggs + amberPlants)
-                    .distinctBy { it.id }
-                    .sortedBy { it.name }
-            },
-            "rain" to run {
-                val live = shops.find { it.type == "rain" }?.itemNames
-                    ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
-                val rainPlants = MgApi.getPlants().values
-                    .filter { it.id.lowercase().let { id -> id.contains("clover") || id.contains("delphinium") || id.contains("mushroom") || id.contains("violet") || id.contains("rain") } }
-                    .filter { ("rain" to it.id) !in existing }
-                (live.filter { ("rain" to it.id) !in existing } + rainPlants)
-                    .distinctBy { it.id }
-                    .sortedBy { it.name }
-            },
+            "egg" to regularEggs,
+
+            // ── DAWN SHOP ─────────────────────────────────────────────────────
+            // Seeds: Dawnbinder Pod, Dawnbreaker Spore + dawn/moon keywords
+            // Eggs: Dawn Egg
+            // Ward: không có (dawn không có ward shard)
+            "dawn" to liveOrFallback(
+                type = "dawn",
+                eggKeywords = listOf("dawn"),
+                plantKeywords = listOf("dawn", "dawnbinder", "dawnbreaker", "moonbinder"),
+            ),
+
+            // ── SNOW SHOP ─────────────────────────────────────────────────────
+            // Seeds: snow/frost/ice plants
+            // Eggs: Snow Egg / Frost Egg
+            // Ward: Snow Ward Shard
+            "snow" to liveOrFallback(
+                type = "snow",
+                eggKeywords = listOf("snow", "frost"),
+                plantKeywords = listOf("snow", "frost", "ice", "frozen", "blizzard"),
+                itemKeywords = listOf("snowward", "snow_ward", "snow ward"),
+            ),
+
+            // ── THUNDER SHOP ──────────────────────────────────────────────────
+            // Seeds: Cattail, Cardoon, Prickly Pear, Milkcap + thunder/storm
+            // Eggs: Thunder Egg
+            // Ward: Thunder Ward Shard
+            "thunder" to liveOrFallback(
+                type = "thunder",
+                eggKeywords = listOf("thunder"),
+                plantKeywords = listOf("thunder", "storm", "cattail", "cardoon", "prickly", "milkcap", "stormcap"),
+                itemKeywords = listOf("thunderward", "thunder_ward", "thunder ward"),
+            ),
+
+            // ── AMBER SHOP ────────────────────────────────────────────────────
+            // Eggs: Amber Egg
+            // Seeds: Emberbloom, Persimmon, Habanero, Marigold, Moonbinder Pod
+            // Shards: Hunger, XP, Strength (pet shards — NOT ward shards)
+            "amber" to liveOrFallback(
+                type = "amber",
+                eggKeywords = listOf("amber"),
+                plantKeywords = listOf("ember", "amber", "persimmon", "habanero", "marigold", "moonbinder"),
+                itemKeywords = listOf("hunger", "xp", "strength", "hungershard", "xpshard", "strengthshard",
+                                      "hunger_shard", "xp_shard", "strength_shard",
+                                      "amber capsule", "ambercapsule"),
+            ),
+
+            // ── RAIN SHOP ─────────────────────────────────────────────────────
+            // Seeds: Clover, Delphinium, Mushroom, Violet Cort + rain plants
+            // Ward: Rain Ward Shard
+            "rain" to liveOrFallback(
+                type = "rain",
+                plantKeywords = listOf("clover", "delphinium", "mushroom", "violet", "rain", "cort"),
+                itemKeywords = listOf("rainward", "rain_ward", "rain ward"),
+            ),
         )
     }
 
@@ -410,9 +440,22 @@ private fun AddWatchlistDialog(
                                 "egg" -> "eggs"
                                 "dawn" -> "plants"
                                 "snow" -> "plants"
-                                "thunder" -> if (entry.id.lowercase().contains("egg")) "eggs" else "plants"
-                                "amber" -> if (entry.id.lowercase().contains("egg")) "eggs" else "plants"
-                                "rain" -> "plants"
+                                "thunder" -> when {
+                                    entry.id.lowercase().contains("egg") -> "eggs"
+                                    entry.id.lowercase().let { it.contains("ward") || it.contains("shard") } -> "items"
+                                    else -> "plants"
+                                }
+                                "amber" -> when {
+                                    entry.id.lowercase().contains("egg") -> "eggs"
+                                    entry.id.lowercase().let { it.contains("shard") || it.contains("capsule") || it.contains("hunger") || it.contains("strength") } -> "items"
+                                    else -> "plants"
+                                }
+                                "snow" -> when {
+                                    entry.id.lowercase().contains("egg") -> "eggs"
+                                    entry.id.lowercase().contains("ward") -> "items"
+                                    else -> "plants"
+                                }
+                                "rain" -> if (entry.id.lowercase().contains("ward")) "items" else "plants"
                                 else -> "items"
                             }
                             val spriteUrl = entry.sprite?.let {
