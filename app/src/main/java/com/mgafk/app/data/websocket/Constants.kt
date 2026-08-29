@@ -67,6 +67,8 @@ object Constants {
     val RESTOCK_SECONDS = mapOf(
         "seed" to 300, "tool" to 600, "egg" to 900, "decor" to 3600,
         "thunder" to 300,  // Thunder Shop: appears during Thunderstorm
+        "amber" to 300,   // Amber Shop: appears during Amber Moon
+        "rain" to 300,    // Rain Shop: appears during Rain
     )
 
     val WEATHER_MAP = mapOf(

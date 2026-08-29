@@ -156,6 +156,28 @@ potions, Seed Silo / Decor Shed / Pet Hutch you already placed) — are
 greyed out with an **OWNED** or **MAX** badge so you don't waste taps.
 
 
+
+### 🔶 Amber Shop
+
+Appears during **Amber Moon** weather events. Sells eggs, seeds, decor, and crystal shards.
+
+**New items:**
+- **Amber Egg** (Guaranteed, 2B coins / 699 Donuts) — chance of Mythical Rooster, Red Fox, Fire Horse, and the new **Phoenix** (Divine)
+- **Crystal Shards** (pet type — Hunger, XP, Strength): plant in garden for special effects. Each lasts 4 hours, fuseable up to 12 hours
+- **Emberbloom** (Celestial) — patch crop, holds up to 15, sells 5M each (Embercrown variant: 15M)
+- **Persimmon** (Legendary), **Habanero** (Mythical), **Marigold** (Divine)
+- New decor: Stone Moon Gate (Legendary), Stone Torch (Mythical), Stone Firepit (Divine)
+- Note: Moonbinder & Dawnbinder Pod moved from Seed Shop → Dawn Shop
+
+### 🌧️ Rain Shop
+
+Appears during **Rain** weather. Sells crops moved out of regular shops including Clover, Delphinium, Mushroom, Violet Cort, and more.
+
+### ❄️ Snow / ⛈️ Thunder / 🌅 Dawn Shops (updated)
+
+- **Ward Crystal Shards** (Rain Ward, Snow Ward, Thunder Ward) sold in their respective weather shops — blocks Wet, Chilled, Thunderstruck mutations in a 5×5 area
+- **Moonbinder & Dawnbinder Pod** moved to Dawn Shop for more reliable availability
+
 ### ⚡ Thunder Shop
 
 Every time a **Thunderstorm** occurs, the **Thunder Shop** appears in the

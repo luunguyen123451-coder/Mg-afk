@@ -51,7 +51,7 @@ import com.mgafk.app.ui.theme.SurfaceDark
 import com.mgafk.app.ui.theme.TextMuted
 import com.mgafk.app.ui.theme.TextPrimary
 
-private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow", "thunder")
+private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain")
 
 /**
  * Card hiển thị danh sách Watchlist items.
@@ -151,6 +151,8 @@ private fun WatchlistChip(
         "dawn" -> "plants"
         "snow" -> "plants"
         "thunder" -> if (item.itemId.lowercase().contains("egg")) "eggs" else "plants"
+        "amber" -> if (item.itemId.lowercase().contains("egg")) "eggs" else "plants"
+        "rain" -> "plants"
         else -> "items"
     }
     val spriteUrl = MgApi.findItem(item.itemId)?.sprite?.let {
@@ -279,11 +281,34 @@ private fun AddWatchlistDialog(
             "dawn" to dawnShopItems,
             "snow" to snowShopItems,
             "thunder" to thunderShopItems,
+            "amber" to run {
+                val live = shops.find { it.type == "amber" }?.itemNames
+                    ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+                val amberEggs = MgApi.getEggs().values
+                    .filter { it.id.lowercase().let { id -> id.contains("amber") } }
+                    .filter { ("amber" to it.id) !in existing }
+                val amberPlants = MgApi.getPlants().values
+                    .filter { it.id.lowercase().let { id -> id.contains("ember") || id.contains("amber") || id.contains("persimmon") || id.contains("habanero") || id.contains("marigold") } }
+                    .filter { ("amber" to it.id) !in existing }
+                (live.filter { ("amber" to it.id) !in existing } + amberEggs + amberPlants)
+                    .distinctBy { it.id }
+                    .sortedBy { it.name }
+            },
+            "rain" to run {
+                val live = shops.find { it.type == "rain" }?.itemNames
+                    ?.mapNotNull { MgApi.findItem(it) } ?: emptyList()
+                val rainPlants = MgApi.getPlants().values
+                    .filter { it.id.lowercase().let { id -> id.contains("clover") || id.contains("delphinium") || id.contains("mushroom") || id.contains("violet") || id.contains("rain") } }
+                    .filter { ("rain" to it.id) !in existing }
+                (live.filter { ("rain" to it.id) !in existing } + rainPlants)
+                    .distinctBy { it.id }
+                    .sortedBy { it.name }
+            },
         )
     }
 
-    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow", "Thunder")
-    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow", "thunder")
+    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow", "Thunder", "Amber", "Rain")
+    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain")
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
@@ -386,6 +411,8 @@ private fun AddWatchlistDialog(
                                 "dawn" -> "plants"
                                 "snow" -> "plants"
                                 "thunder" -> if (entry.id.lowercase().contains("egg")) "eggs" else "plants"
+                                "amber" -> if (entry.id.lowercase().contains("egg")) "eggs" else "plants"
+                                "rain" -> "plants"
                                 else -> "items"
                             }
                             val spriteUrl = entry.sprite?.let {
