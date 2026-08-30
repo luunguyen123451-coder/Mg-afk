@@ -341,6 +341,8 @@ class GameActions(
 
     fun upgradeDecorShed() = game("UpgradeDecorShed")
 
+    fun upgradeToolShack() = game("UpgradeToolShack")
+
     fun namePet(petItemId: String, name: String) =
         game("NamePet", obj("petItemId" to JsonPrimitive(petItemId), "name" to JsonPrimitive(name)))
 
@@ -526,6 +528,7 @@ class GameActions(
             "UpgradePetHutch",
             "UpgradeSeedSilo",
             "UpgradeDecorShed",
+            "UpgradeToolShack",
         )
 
         private fun obj(vararg pairs: Pair<String, JsonElement>): JsonObject =

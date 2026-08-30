@@ -70,7 +70,7 @@ object MgApi {
         // Pet-only: also the pet's max hunger value (hunger drops from this
         // down to 0). Source-of-truth for the hunger bar % display.
         val coinsToFullyReplenishHunger: Int? = null,
-        // Decor-only (PetHutch, SeedSilo, DecorShed): capacity upgrade tiers
+        // Decor-only (PetHutch, SeedSilo, DecorShed, ToolShack): capacity upgrade tiers
         val upgrades: List<DecorUpgrade> = emptyList(),
         // Shop buyability - owning >= 1 of a one-time-purchase item blocks further buys.
         val isOneTimePurchase: Boolean = false,
@@ -182,7 +182,7 @@ object MgApi {
     /** One-shot diagnostic: confirms the upgrade-tier chain parsed correctly for each
      * leveled storage decor - helps spot API schema drift without guessing. */
     private fun logStorageUpgradeCounts(decors: Map<String, GameEntry>) {
-        for (id in listOf("PetHutch", "SeedSilo", "DecorShed")) {
+        for (id in listOf("PetHutch", "SeedSilo", "DecorShed", "ToolShack")) {
             val upgrades = decors[id]?.upgrades ?: emptyList()
             AppLog.d(TAG, "$id upgrades: ${upgrades.size} tiers ${upgrades.map { "${it.fromCapacitySlots}->${it.toCapacitySlots}" }}")
         }
@@ -284,6 +284,29 @@ object MgApi {
         for (getter in listOf(::getPlants, ::getItems, ::getEggs, ::getDecors)) {
             val match = getter().entries.find { it.key.equals(itemId, ignoreCase = true) }
             if (match != null) return match.value
+        }
+        return null
+    }
+
+    /**
+     * Which data category an item id belongs to ("plants", "items", "eggs", "decors"),
+     * or null when the id is unknown. Same lookup order and case-insensitive fallback as
+     * [findItem] - use this instead of the shop an item happens to be sold in, since the
+     * game now sells the same kinds of item across several shops (ward shards are `items`
+     * sold in the weather shops, storages are `decors` sold in the tool shop).
+     */
+    fun categoryOf(itemId: String): String? {
+        val categories = listOf(
+            "plants" to ::getPlants,
+            "items" to ::getItems,
+            "eggs" to ::getEggs,
+            "decors" to ::getDecors,
+        )
+        for ((name, getter) in categories) {
+            if (getter().containsKey(itemId)) return name
+        }
+        for ((name, getter) in categories) {
+            if (getter().keys.any { it.equals(itemId, ignoreCase = true) }) return name
         }
         return null
     }

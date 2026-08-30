@@ -50,6 +50,8 @@ import com.mgafk.app.data.repository.SessionRepository
 import com.mgafk.app.data.repository.StateCollector
 import com.mgafk.app.data.repository.AppRelease
 import com.mgafk.app.data.repository.VersionFetcher
+import com.mgafk.app.data.model.POTION_STORAGE_ID
+import com.mgafk.app.data.model.REPLENISH_POTION_ID
 import com.mgafk.app.data.repository.WatchlistManager
 import com.mgafk.app.data.repository.TeamTriggerManager
 import com.mgafk.app.data.model.WatchlistItem
@@ -76,7 +78,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private class TokenExpiredException : Exception("Discord token expired")
 
@@ -123,6 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "MainViewModel"
         /** How often each connected session is evaluated for a collect-state send. */
         const val STATE_COLLECT_INTERVAL_MS = 60_000L
+        const val POTION_RETRIEVAL_TIMEOUT_MS = 6_000L
         /**
          * On connect the userSlot is hydrated shortly after the room player
          * resolves, so the immediate collect-state is retried briefly until the
@@ -174,7 +179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val petTipDismissed = repo.isPetTipDismissed()
             val settings = repo.loadSettings()
             alertNotifier.alarmSoundUri = settings.alarmSoundUri
-            alertNotifier.alarmSchedule = settings.alarmSchedule
+            alertNotifier.alarmSchedules = settings.alarmSchedules
             alertNotifier.alarmVolume = settings.alarmVolume
             // Legacy migration: pet teams used to be a single global list. Seed each
             // session that has none yet from the old global one, so the previous behaviour
@@ -1509,6 +1514,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateSession(sessionId) { it.copy(lastHatchedPet = null, lastHatchedEggId = "") }
     }
 
+    /**
+     * Uses one Hunger Potion on [petItemId], pulling it out of the Tool Shack first when the
+     * inventory has none left. The potion only applies to the pet the player is standing on,
+     * so this teleports there first - same sequence the auto-feed uses.
+     *
+     * The retrieval is a separate round trip, so this waits for the server to confirm the
+     * potion in the inventory before drinking it. If that confirmation never lands the potion
+     * simply stays where it is, retrieved but unused: nothing is consumed on a guess.
+     */
+    fun useReplenishPotionOnPet(sessionId: String, petItemId: String) {
+        viewModelScope.launch {
+            val client = clients[sessionId] ?: return@launch
+            val session = _state.value.sessions.find { it.id == sessionId } ?: return@launch
+
+            if (potionCountIn(session.inventory.tools) == 0) {
+                if (potionCountIn(session.toolShack) == 0) return@launch
+                client.actions.retrieveItemFromStorage(
+                    itemId = REPLENISH_POTION_ID,
+                    storageId = POTION_STORAGE_ID,
+                    toInventoryIndex = totalInventoryCount(session),
+                )
+                val arrived = withTimeoutOrNull(POTION_RETRIEVAL_TIMEOUT_MS) {
+                    _state.first { state ->
+                        val tools = state.sessions.find { it.id == sessionId }?.inventory?.tools
+                        potionCountIn(tools.orEmpty()) > 0
+                    }
+                }
+                if (arrived == null) {
+                    AppLog.d(TAG, "[Potion] Retrieval from $POTION_STORAGE_ID not confirmed for $sessionId")
+                    return@launch
+                }
+            }
+
+            val position = findPetPosition(client, petItemId) ?: return@launch
+            client.actions.teleport(position.first, position.second)
+            client.actions.useReplenishPotion(petItemId)
+        }
+    }
+
+    private fun potionCountIn(tools: List<InventoryToolItem>): Int =
+        tools.find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0
+
+    /**
+     * Reads the pet's current tile position from the player's own live petSlotInfos.
+     * The game has used two shapes for this over time - `{ motion: { at: {x,y} } }`
+     * (current) and a flatter `{ position: {x,y} }` (older) - so both are checked.
+     */
+    private fun findPetPosition(client: RoomClient, petId: String): Pair<Double, Double>? {
+        val me = client.gameState.getPlayer(client.playerId) ?: return null
+        val info = me.petSlotInfos?.get(petId) as? JsonObject ?: return null
+        val posObj = (info["motion"] as? JsonObject)?.get("at") as? JsonObject
+            ?: info["position"] as? JsonObject
+            ?: return null
+        val x = posObj["x"]?.jsonPrimitive?.doubleOrNull ?: return null
+        val y = posObj["y"]?.jsonPrimitive?.doubleOrNull ?: return null
+        return x to y
+    }
+
+    private fun totalInventoryCount(session: Session): Int {
+        val inv = session.inventory
+        return inv.seeds.size + inv.eggs.size + inv.produce.size + inv.plants.size +
+            inv.pets.size + inv.tools.size + inv.decors.size
+    }
+
+    fun moveToolToShack(sessionId: String, toolId: String) {
+        val actions = clients[sessionId]?.actions ?: return
+        val session = _state.value.sessions.find { it.id == sessionId } ?: return
+        actions.putItemInStorage(
+            itemId = toolId,
+            storageId = "ToolShack",
+            toStorageIndex = session.toolShack.size,
+        )
+    }
+
+    fun upgradeToolShack(sessionId: String) {
+        clients[sessionId]?.actions?.upgradeToolShack()
+    }
+
     /** Hatch all mature eggs in the garden one by one. */
     fun hatchAllEggs(sessionId: String) {
         val session = _state.value.sessions.find { it.id == sessionId } ?: return
@@ -1798,7 +1881,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun applySettings(settings: AppSettings) {
         // Push the chosen alarm sound URI to the notifier so the next alarm uses it.
         alertNotifier.alarmSoundUri = settings.alarmSoundUri
-        alertNotifier.alarmSchedule = settings.alarmSchedule
+        alertNotifier.alarmSchedules = settings.alarmSchedules
         alertNotifier.alarmVolume = settings.alarmVolume
         // Update AfkService locks if service is running
         if (serviceRunning) {

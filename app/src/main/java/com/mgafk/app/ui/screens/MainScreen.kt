@@ -111,6 +111,8 @@ import com.mgafk.app.ui.screens.minigames.GameConflictDialog
 import com.mgafk.app.ui.screens.minigames.GamesGrid
 import com.mgafk.app.ui.screens.minigames.HistoryCard
 import com.mgafk.app.ui.screens.minigames.WalletCard
+import com.mgafk.app.data.model.REPLENISH_POTION_ID
+import com.mgafk.app.ui.screens.storage.ToolShackCard
 import com.mgafk.app.ui.screens.shops.WatchlistCard
 import com.mgafk.app.data.model.WatchlistItem
 import com.mgafk.app.ui.screens.shops.ShopsCards
@@ -635,6 +637,13 @@ private fun SectionContent(
                 apiReady = state.apiReady,
                 onHatch = { slot -> viewModel.hatchEgg(session.id, slot) },
                 onHatchAll = { viewModel.hatchAllEggs(session.id) },
+                potionsInInventory = session.inventory.tools
+                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
+                potionsInShack = session.toolShack
+                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
+                onUsePotionOnPet = { petItemId ->
+                    viewModel.useReplenishPotionOnPet(session.id, petItemId)
+                },
                 lastHatchedPet = session.lastHatchedPet,
                 lastHatchedEggId = session.lastHatchedEggId,
                 instantHatch = state.settings.instantHatch,
@@ -715,6 +724,20 @@ private fun SectionContent(
             val decorShedMax = session.decorShedCapacitySlots
             val seedSiloSpecies = remember(session.seedSilo) { session.seedSilo.map { it.species }.toSet() }
             val decorShedIds = remember(session.decorShed) { session.decorShed.map { it.decorId }.toSet() }
+            val toolShackMax = session.toolShackCapacitySlots
+            // Storage cards and their "move to storage" buttons only make sense for
+            // structures the player has actually placed in the garden.
+            val hasSeedSilo = "SeedSilo" in session.availableStorages
+            val hasDecorShed = "DecorShed" in session.availableStorages
+            val hasPetHutch = "PetHutch" in session.availableStorages
+            val hasFeedingTrough = "FeedingTrough" in session.availableStorages
+            val hasToolShack = "ToolShack" in session.availableStorages
+            val seedSiloSpecies = remember(session.seedSilo) { session.seedSilo.map { it.species }.toSet() }
+            val decorShedIds = remember(session.decorShed) { session.decorShed.map { it.decorId }.toSet() }
+            val toolShackToolIds = remember(session.toolShack) { session.toolShack.map { it.toolId }.toSet() }
+            val invSeedSpecies = remember(inv.seeds) { inv.seeds.map { it.species }.toSet() }
+            val invDecorIds = remember(inv.decors) { inv.decors.map { it.decorId }.toSet() }
+            val invToolIds = remember(inv.tools) { inv.tools.map { it.toolId }.toSet() }
             val invSeedSpecies = remember(inv.seeds) { inv.seeds.map { it.species }.toSet() }
             val invDecorIds = remember(inv.decors) { inv.decors.map { it.decorId }.toSet() }
 
