@@ -722,11 +722,7 @@ private fun SectionContent(
             val hutchMax = session.hutchCapacitySlots
             val siloMax = session.siloCapacitySlots
             val decorShedMax = session.decorShedCapacitySlots
-            val seedSiloSpecies = remember(session.seedSilo) { session.seedSilo.map { it.species }.toSet() }
-            val decorShedIds = remember(session.decorShed) { session.decorShed.map { it.decorId }.toSet() }
             val toolShackMax = session.toolShackCapacitySlots
-            // Storage cards and their "move to storage" buttons only make sense for
-            // structures the player has actually placed in the garden.
             val hasSeedSilo = "SeedSilo" in session.availableStorages
             val hasDecorShed = "DecorShed" in session.availableStorages
             val hasPetHutch = "PetHutch" in session.availableStorages
@@ -738,8 +734,6 @@ private fun SectionContent(
             val invSeedSpecies = remember(inv.seeds) { inv.seeds.map { it.species }.toSet() }
             val invDecorIds = remember(inv.decors) { inv.decors.map { it.decorId }.toSet() }
             val invToolIds = remember(inv.tools) { inv.tools.map { it.toolId }.toSet() }
-            val invSeedSpecies = remember(inv.seeds) { inv.seeds.map { it.species }.toSet() }
-            val invDecorIds = remember(inv.decors) { inv.decors.map { it.decorId }.toSet() }
 
             InventoryCard(
                 inventory = session.inventory,

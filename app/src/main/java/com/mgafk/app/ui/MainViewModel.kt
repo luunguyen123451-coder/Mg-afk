@@ -1616,11 +1616,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return x to y
     }
 
-    private fun totalInventoryCount(session: Session): Int {
-        val inv = session.inventory
-        return inv.seeds.size + inv.eggs.size + inv.produce.size + inv.plants.size +
-            inv.pets.size + inv.tools.size + inv.decors.size
-    }
 
     fun moveToolToShack(sessionId: String, toolId: String) {
         val actions = clients[sessionId]?.actions ?: return
