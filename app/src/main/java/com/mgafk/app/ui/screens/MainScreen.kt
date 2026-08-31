@@ -637,13 +637,6 @@ private fun SectionContent(
                 apiReady = state.apiReady,
                 onHatch = { slot -> viewModel.hatchEgg(session.id, slot) },
                 onHatchAll = { viewModel.hatchAllEggs(session.id) },
-                potionsInInventory = session.inventory.tools
-                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
-                potionsInShack = session.toolShack
-                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
-                onUsePotionOnPet = { petItemId ->
-                    viewModel.useReplenishPotionOnPet(session.id, petItemId)
-                },
                 lastHatchedPet = session.lastHatchedPet,
                 lastHatchedEggId = session.lastHatchedEggId,
                 instantHatch = state.settings.instantHatch,
@@ -659,6 +652,13 @@ private fun SectionContent(
                 apiReady = state.apiReady,
                 showTip = state.showPetTip,
                 onDismissTip = { viewModel.dismissPetTip() },
+                potionsInInventory = session.inventory.tools
+                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
+                potionsInShack = session.toolShack
+                    .find { it.toolId == REPLENISH_POTION_ID }?.quantity ?: 0,
+                onUsePotionOnPet = { petItemId ->
+                    viewModel.useReplenishPotionOnPet(session.id, petItemId)
+                },
                 onFeedPet = { petItemId, cropItemIds ->
                     viewModel.feedPet(session.id, petItemId, cropItemIds)
                 },

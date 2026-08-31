@@ -52,6 +52,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.mgafk.app.data.repository.MgApi
+import com.mgafk.app.ui.components.SpriteImage
+import com.mgafk.app.ui.theme.StatusError
+import com.mgafk.app.ui.theme.SurfaceDark
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +105,7 @@ fun SettingsCards(
     BackgroundCard(settings = settings, onUpdate = onUpdate)
     ShopsSettingsCard(settings = settings, onUpdate = onUpdate)
     StoragesCard(settings = settings, availableStorages = availableStorages, onUpdate = onUpdate)
+    AutoEggCard(settings = settings, onUpdate = onUpdate)
     GameplayCard(settings = settings, onUpdate = onUpdate)
     AlarmCard(
         settings = settings,
@@ -474,6 +496,132 @@ private fun StoragesCard(
                 description = "Whenever a tool in your inventory matches a tool already in the shack, move it in automatically.",
                 checked = settings.autoStockToolShack,
                 onCheckedChange = { onUpdate(settings.copy(autoStockToolShack = it)) },
+            )
+        }
+    }
+}
+
+
+// ── Auto Grow & Auto Hatch ──
+
+@Composable
+private fun AutoEggCard(settings: AppSettings, onUpdate: (AppSettings) -> Unit) {
+    val allEggs = remember { MgApi.getEggs().values.sortedBy { it.name } }
+    if (allEggs.isEmpty()) return
+
+    AppCard(title = "Auto Eggs", collapsible = true, persistKey = "settings_auto_eggs") {
+        // Auto Hatch toggle
+        ToggleRow(
+            title = "Auto Hatch",
+            description = "Tự động hatch tất cả trứng đã đủ thời gian trong vườn.",
+            checked = settings.autoHatchEggs,
+            onCheckedChange = { onUpdate(settings.copy(autoHatchEggs = it)) },
+        )
+
+        androidx.compose.foundation.layout.Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        // Auto Grow section
+        Text(
+            "Auto Grow",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextPrimary,
+        )
+        Text(
+            "Chọn loại trứng sẽ tự động grow vào vườn khi có trong inventory và còn tile trống.",
+            fontSize = 11.sp,
+            color = TextMuted,
+            lineHeight = 15.sp,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+        )
+
+        val selectedIds = settings.autoGrowEggIds.toSet()
+
+        // Search box
+        var search by remember { mutableStateOf("") }
+        androidx.compose.material3.OutlinedTextField(
+            value = search,
+            onValueChange = { search = it },
+            placeholder = { Text("Search eggs...", fontSize = 12.sp, color = TextMuted) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = TextPrimary),
+        )
+
+        val filtered = remember(allEggs, search) {
+            if (search.isBlank()) allEggs
+            else allEggs.filter { it.name.contains(search, ignoreCase = true) }
+        }
+
+        // Egg grid - multi-select chips
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
+            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            filtered.forEach { egg ->
+                val selected = egg.id in selectedIds
+                val rarityColor = when (egg.rarity?.lowercase()) {
+                    "rare" -> Color(0xFF0071C6)
+                    "legendary" -> Color(0xFFFFC734)
+                    "mythical", "mythic" -> Color(0xFF9944A7)
+                    "divine" -> Color(0xFFFF7835)
+                    "celestial" -> Color(0xFFFF00FF)
+                    else -> TextMuted
+                }
+                Row(
+                    modifier = androidx.compose.ui.Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            1.5.dp,
+                            if (selected) Accent else rarityColor.copy(alpha = 0.4f),
+                            RoundedCornerShape(8.dp),
+                        )
+                        .background(if (selected) Accent.copy(alpha = 0.12f) else SurfaceDark)
+                        .clickable {
+                            val newIds = if (selected) selectedIds - egg.id else selectedIds + egg.id
+                            onUpdate(settings.copy(autoGrowEggIds = newIds.toList()))
+                        }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    SpriteImage(
+                        category = "eggs",
+                        name = egg.id,
+                        size = 20.dp,
+                        contentDescription = egg.name,
+                    )
+                    Text(
+                        egg.name,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) Accent else TextPrimary,
+                    )
+                }
+            }
+        }
+
+        if (selectedIds.isNotEmpty()) {
+            Text(
+                "${selectedIds.size} egg type(s) selected — auto-grow khi có tile trống",
+                fontSize = 10.sp,
+                color = Accent,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                "Clear all",
+                fontSize = 10.sp,
+                color = StatusError.copy(alpha = 0.7f),
+                fontWeight = FontWeight.SemiBold,
+                modifier = androidx.compose.ui.Modifier
+                    .padding(top = 2.dp)
+                    .clickable { onUpdate(settings.copy(autoGrowEggIds = emptyList())) },
             )
         }
     }

@@ -1253,6 +1253,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
+    /**
+     * Auto-grow: với mỗi eggId trong settings.autoGrowEggIds,
+     * grow vào tile trống nếu có trứng trong inventory.
+     * Gọi sau mỗi lần inventory thay đổi (PlayerChanged event).
+     */
+    private fun runAutoGrowEggs(
+        sessionId: String,
+        invEggs: List<InventoryEggItem>,
+        freePlantTiles: Int,
+    ) {
+        val actions = clients[sessionId]?.actions ?: return
+        val autoIds = _state.value.settings.autoGrowEggIds
+        if (autoIds.isEmpty() || freePlantTiles <= 0) return
+
+        var remainingTiles = freePlantTiles
+        for (eggId in autoIds) {
+            if (remainingTiles <= 0) break
+            val egg = invEggs.find { it.eggId == eggId } ?: continue
+            val toGrow = minOf(egg.quantity, remainingTiles)
+            repeat(toGrow) {
+                actions.growEgg(eggId)
+                remainingTiles--
+            }
+        }
+    }
+
+    /**
+     * Auto-hatch: hatch tất cả trứng đã đủ thời gian trong vườn.
+     * Gọi sau mỗi lần EggsChanged event.
+     */
+    private fun runAutoHatchEggs(
+        sessionId: String,
+        gardenEggs: List<GardenEggSnapshot>,
+    ) {
+        val actions = clients[sessionId]?.actions ?: return
+        if (!_state.value.settings.autoHatchEggs) return
+        val now = System.currentTimeMillis()
+        val matureEggs = gardenEggs.filter { now >= it.maturedAt }
+        for (egg in matureEggs) {
+            actions.hatchEgg(egg.tileId)
+        }
+    }
+
     /** Sell all crops at once. */
     fun sellAllCrops(sessionId: String) {
         clients[sessionId]?.actions?.sellAllCrops()
@@ -1590,6 +1634,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun upgradeToolShack(sessionId: String) {
         clients[sessionId]?.actions?.upgradeToolShack()
+    }
+
+
+    // ── Auto Grow / Auto Hatch settings ───────────────────────────────────
+    fun setAutoHatchEggs(enabled: Boolean) {
+        viewModelScope.launch { repo.saveSettings(_state.value.settings.copy(autoHatchEggs = enabled)) }
+        _state.update { it.copy(settings = it.settings.copy(autoHatchEggs = enabled)) }
+    }
+
+    fun toggleAutoGrowEgg(eggId: String) {
+        val current = _state.value.settings.autoGrowEggIds
+        val updated = if (eggId in current) current - eggId else current + eggId
+        val newSettings = _state.value.settings.copy(autoGrowEggIds = updated)
+        _state.update { it.copy(settings = newSettings) }
+        viewModelScope.launch { repo.saveSettings(newSettings) }
+    }
+
+    fun clearAutoGrowEggs() {
+        val newSettings = _state.value.settings.copy(autoGrowEggIds = emptyList())
+        _state.update { it.copy(settings = newSettings) }
+        viewModelScope.launch { repo.saveSettings(newSettings) }
     }
 
     /** Hatch all mature eggs in the garden one by one. */
@@ -2293,6 +2358,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 scheduleTroughAlertCheck(sessionId)
                 runAutoStock(sessionId, seeds, decors, siloSeeds, shedDecors, availableStorages)
+                val freeTilesNow = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
+                runAutoGrowEggs(sessionId, eggs, freeTilesNow)
             }
             is ClientEvent.EggsChanged -> {
                 val newEggs = event.eggs.map { tile ->
@@ -2313,6 +2380,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val freeTiles = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
                 updateSession(sessionId) { it.copy(gardenEggs = newEggs, freePlantTiles = freeTiles) }
+                runAutoHatchEggs(sessionId, newEggs)
             }
             is ClientEvent.ShopsChanged -> {
                 val previousShops = _state.value.sessions.find { it.id == sessionId }?.shops.orEmpty()

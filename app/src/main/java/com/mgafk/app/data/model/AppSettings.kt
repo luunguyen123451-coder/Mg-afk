@@ -88,6 +88,12 @@ data class AppSettings(
     val autoStockDecorShed: Boolean = false,
     val autoStockToolShack: Boolean = false,
 
+    // Auto-grow eggs: danh sách eggId sẽ tự động grow khi có trong inventory + có tile trống
+    val autoGrowEggIds: List<String> = emptyList(),
+
+    // Auto-hatch eggs: tự động hatch tất cả trứng đã đủ thời gian
+    val autoHatchEggs: Boolean = false,
+
     // Play in game - inject the Gemini userscript into the WebView
     val injectGeminiMod: Boolean = true,
 
