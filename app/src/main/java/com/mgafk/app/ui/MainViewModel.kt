@@ -1264,7 +1264,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         invEggs: List<InventoryEggItem>,
         freePlantTiles: Int,
     ) {
-        val actions = clients[sessionId]?.actions ?: return
         val autoIds = _state.value.settings.autoGrowEggIds
         if (autoIds.isEmpty() || freePlantTiles <= 0) return
 
@@ -1274,7 +1273,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val egg = invEggs.find { it.eggId == eggId } ?: continue
             val toGrow = minOf(egg.quantity, remainingTiles)
             repeat(toGrow) {
-                actions.growEgg(eggId)
+                growEgg(sessionId, eggId)
                 remainingTiles--
             }
         }
@@ -1288,12 +1287,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sessionId: String,
         gardenEggs: List<GardenEggSnapshot>,
     ) {
-        val actions = clients[sessionId]?.actions ?: return
         if (!_state.value.settings.autoHatchEggs) return
         val now = System.currentTimeMillis()
         val matureEggs = gardenEggs.filter { now >= it.maturedAt }
         for (egg in matureEggs) {
-            actions.hatchEgg(egg.tileId)
+            hatchEgg(sessionId, egg.tileId)
         }
     }
 
