@@ -2265,9 +2265,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val shedDecors = mutableListOf<InventoryDecorItem>()
                 val hutchPets = mutableListOf<InventoryPetItem>()
                 val troughCrops = mutableListOf<InventoryCropsItem>()
+                val toolShackTools = mutableListOf<InventoryToolItem>()
                 var hutchCapacitySlots = existingSession?.hutchCapacitySlots ?: PriceCalculator.HUTCH_BASE_CAPACITY
                 var siloCapacitySlots = existingSession?.siloCapacitySlots ?: PriceCalculator.SILO_BASE_CAPACITY
                 var decorShedCapacitySlots = existingSession?.decorShedCapacitySlots ?: PriceCalculator.DECOR_SHED_BASE_CAPACITY
+                var toolShackCapacitySlots = existingSession?.toolShackCapacitySlots ?: PriceCalculator.TOOL_SHACK_BASE_CAPACITY
                 // Owned storages never go away - only grow this set, don't reset it, so a
                 // partial event doesn't make an already-purchased storage look unowned.
                 val availableStorages = existingSession?.availableStorages?.toMutableSet() ?: mutableSetOf()
@@ -2287,6 +2289,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             slots ?: PriceCalculator.calculateSiloCapacity(legacyLevel)
                         "DecorShed" -> decorShedCapacitySlots =
                             slots ?: PriceCalculator.calculateDecorShedCapacity(legacyLevel)
+                        "ToolShack" -> toolShackCapacitySlots =
+                            slots ?: PriceCalculator.calculateToolShackCapacity(legacyLevel)
                     }
                     val storageItems = storage["items"] as? JsonArray ?: continue
                     for (el in storageItems) {
@@ -2320,6 +2324,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 mutations = (obj["mutations"] as? JsonArray)
                                     ?.mapNotNull { it.jsonPrimitive.contentOrNull }
                                     ?.filter { it.isNotBlank() } ?: emptyList(),
+                            ))
+                            "ToolShack" -> toolShackTools.add(InventoryToolItem(
+                                toolId = obj["toolId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                quantity = obj["quantity"]?.jsonPrimitive?.intOrNull ?: 1,
                             ))
                         }
                     }
@@ -2367,12 +2375,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         decorShed = shedDecors,
                         petHutch = hutchPets,
                         feedingTrough = troughCrops,
+                        toolShack = toolShackTools,
                         favoritedItemIds = event.favoritedItemIds.toSet(),
                         lastHatchedPet = hatchedPet ?: it.lastHatchedPet,
                         magicDust = event.magicDust,
                         hutchCapacitySlots = hutchCapacitySlots,
                         siloCapacitySlots = siloCapacitySlots,
                         decorShedCapacitySlots = decorShedCapacitySlots,
+                        toolShackCapacitySlots = toolShackCapacitySlots,
                         availableStorages = availableStorages,
                     )
                 }
