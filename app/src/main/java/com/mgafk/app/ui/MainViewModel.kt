@@ -2360,10 +2360,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // Detect newly hatched pet — kể cả hatch trong game
-                val existingSession = _state.value.sessions.find { it.id == sessionId }
-                val previousAllPetIds = existingSession?.let {
-                    (it.inventory.pets.map { p -> p.id } + it.petHutch.map { p -> p.id }).toSet()
-                } ?: emptySet()
+                val previousAllPetIds = run {
+                    val s = _state.value.sessions.find { it.id == sessionId }
+                    ((s?.inventory?.pets?.map { p -> p.id } ?: emptyList()) +
+                     (s?.petHutch?.map { p -> p.id } ?: emptyList())).toSet()
+                }
                 val allNewPets = pets + hutchPets
                 val allNewPetIds = allNewPets.map { it.id }.toSet()
                 val newlyAddedPetIds = allNewPetIds - previousAllPetIds
