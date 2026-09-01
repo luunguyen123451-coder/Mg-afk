@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.mgafk.app.data.model.AlertConfig
 import com.mgafk.app.data.model.AppSettings
+import com.mgafk.app.data.model.BLPCounter
 import com.mgafk.app.data.model.WatchlistItem
 import com.mgafk.app.data.model.PetTeam
 import com.mgafk.app.data.model.Session
@@ -248,4 +249,22 @@ class SessionRepository(private val context: Context) {
             prefs[KEY_WATCHLIST] = json.encodeToString(items)
         }
     }
+
+    private val KEY_BLP = stringPreferencesKey("mgafk.blp_counters")
+
+    suspend fun loadBlpCounters(): Map<String, BLPCounter> {
+        val raw = context.dataStore.data.map { it[KEY_BLP] }.first() ?: return emptyMap()
+        return try {
+            json.decodeFromString(raw)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    suspend fun saveBlpCounters(counters: Map<String, BLPCounter>) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_BLP] = json.encodeToString(counters)
+        }
+    }
+
 }

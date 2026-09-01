@@ -88,6 +88,7 @@ import com.mgafk.app.ui.screens.room.ChatCard
 import com.mgafk.app.ui.screens.room.PlayersCard
 import com.mgafk.app.ui.screens.room.PopulateCard
 import com.mgafk.app.ui.screens.logs.AbilityLogsCard
+import com.mgafk.app.ui.screens.garden.BadLuckCard
 import com.mgafk.app.ui.screens.garden.EggsCard
 import com.mgafk.app.ui.screens.garden.GardenCard
 import com.mgafk.app.ui.screens.storage.DecorShedCard
@@ -632,6 +633,13 @@ private fun SectionContent(
                 planterPots = session.inventory.tools.find { it.toolId == "PlanterPot" }?.quantity ?: 0,
                 cropCleansers = session.inventory.tools.find { it.toolId == "CropCleanser" }?.quantity ?: 0,
             )
+            BadLuckCard(
+                blpCounters = state.blpCounters,
+                lastHatchedPet = session.lastHatchedPet,
+                onReset = { eggId -> viewModel.blpReset(eggId) },
+                onIncrement = { eggId, speciesId, isRainbow -> viewModel.blpIncrement(eggId, speciesId, isRainbow) },
+            )
+
             EggsCard(
                 eggs = session.gardenEggs,
                 apiReady = state.apiReady,

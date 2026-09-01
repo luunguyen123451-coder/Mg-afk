@@ -54,6 +54,7 @@ import com.mgafk.app.data.model.POTION_STORAGE_ID
 import com.mgafk.app.data.model.REPLENISH_POTION_ID
 import com.mgafk.app.data.repository.WatchlistManager
 import com.mgafk.app.data.repository.TeamTriggerManager
+import com.mgafk.app.data.model.BLPCounter
 import com.mgafk.app.data.model.WatchlistItem
 import com.mgafk.app.data.model.TeamTrigger
 import com.mgafk.app.data.websocket.ClientEvent
@@ -117,6 +118,9 @@ data class UiState(
     val publicRooms: List<AriesApi.PublicRoom> = emptyList(),
     val publicRoomsLoading: Boolean = false,
     val watchlist: List<WatchlistItem> = emptyList(),
+
+    // Bad Luck Protection counters — keyed by eggId, persisted locally
+    val blpCounters: Map<String, BLPCounter> = emptyMap(),
 ) {
     val activeSession: Session
         get() = sessions.find { it.id == activeSessionId } ?: sessions.first()
@@ -171,6 +175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val sessions = repo.loadSessions().ifEmpty { listOf(Session()) }
             val watchlist = repo.loadWatchlist()
+            val blpCounters = repo.loadBlpCounters()
             val activeId = repo.loadActiveSessionId() ?: sessions.first().id
             val alerts = repo.loadAlerts()
             val collapsedCards = repo.loadCollapsedCards()
@@ -208,6 +213,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showPlantTip = !plantTipDismissed,
                 settings = settings,
                 watchlist = watchlist,
+                blpCounters = blpCounters,
             )
             // Collect service logs (wake lock events etc.)
             launch {
@@ -1273,6 +1279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val egg = invEggs.find { it.eggId == eggId } ?: continue
             val toGrow = minOf(egg.quantity, remainingTiles)
             repeat(toGrow) {
+                // Dùng growEgg() vì nó tự tìm slot trống và xử lý optimistic update
                 growEgg(sessionId, eggId)
                 remainingTiles--
             }
@@ -1629,6 +1636,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         clients[sessionId]?.actions?.upgradeToolShack()
     }
 
+
+    // ── Bad Luck Protection ───────────────────────────────────────────────
+    fun blpIncrement(eggId: String, speciesId: String, isRainbow: Boolean) {
+        // speciesId rỗng = miss thuần (tăng counter), có speciesId = ra species đó (reset counter đó)
+        val current = _state.value.blpCounters[eggId] ?: BLPCounter()
+        val updated = current.onHatch(
+            speciesId = speciesId.ifBlank { "__miss__" },
+            isRainbow = isRainbow,
+            isGold    = false,
+        )
+        val newMap = _state.value.blpCounters + (eggId to updated)
+        _state.update { it.copy(blpCounters = newMap) }
+        viewModelScope.launch { repo.saveBlpCounters(newMap) }
+    }
+
+    fun blpReset(eggId: String) {
+        val newMap = _state.value.blpCounters + (eggId to BLPCounter())
+        _state.update { it.copy(blpCounters = newMap) }
+        viewModelScope.launch { repo.saveBlpCounters(newMap) }
+    }
 
     // ── Auto Grow / Auto Hatch settings ───────────────────────────────────
     fun setAutoHatchEggs(enabled: Boolean) {
