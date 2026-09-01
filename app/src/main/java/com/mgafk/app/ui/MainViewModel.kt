@@ -2368,6 +2368,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 AppLog.d(TAG, "[Storage] availableStorages=$availableStorages hutch=$hutchCapacitySlots silo=$siloCapacitySlots decorShed=$decorShedCapacitySlots")
 
+                // Capture eggId trước updateSession
+                val pendingEggId = _state.value.sessions
+                    .find { it.id == sessionId }?.lastHatchedEggId.orEmpty()
+
                 updateSession(sessionId) {
                     it.copy(
                         inventory = InventorySnapshot(seeds, eggs, produce, plants, pets, tools, decors),
@@ -2390,6 +2394,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runAutoStock(sessionId, seeds, decors, siloSeeds, shedDecors, availableStorages)
                 val freeTilesNow = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
                 runAutoGrowEggs(sessionId, eggs, freeTilesNow)
+
+                // BLP counter update
+                if (hatchedPet != null && pendingEggId.isNotBlank()) {
+                    val isRainbow = hatchedPet.mutations.any { it.lowercase().contains("rainbow") }
+                    val isGold = hatchedPet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
+                    val updated = (_state.value.blpCounters[pendingEggId] ?: BLPCounter())
+                        .onHatch(hatchedPet.petSpecies, isRainbow, isGold)
+                    val newMap = _state.value.blpCounters + (pendingEggId to updated)
+                    _state.update { it.copy(blpCounters = newMap) }
+                    viewModelScope.launch { repo.saveBlpCounters(newMap) }
+                }
             }
             is ClientEvent.EggsChanged -> {
                 val newEggs = event.eggs.map { tile ->
