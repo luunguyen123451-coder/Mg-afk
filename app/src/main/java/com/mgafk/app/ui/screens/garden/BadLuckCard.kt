@@ -34,8 +34,8 @@ private val GUARANTEED_COLOR = Color(0xFF4ADE80)
 fun BadLuckCard(
     blpCounters: Map<String, BLPCounter>,
     lastHatchedPet: InventoryPetItem? = null,
-    onReset: (eggId: String) -> Unit = {},
-    onIncrement: (eggId: String, speciesId: String, isRainbow: Boolean) -> Unit = {},
+    onReset: (eggId: String) -> Unit = { _ -> },
+    onIncrement: (eggId: String, speciesId: String, isRainbow: Boolean) -> Unit = { _, _, _ -> },
 ) {
     // Chỉ hiển thị các egg có BLP guarantees
     val trackedEggs = remember {
