@@ -2359,12 +2359,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingCleanseJobs.remove(key)?.cancel()
                 }
 
-                // Detect newly hatched pet
-                val previousPetIds = preHatchPetIds.remove(sessionId)
+                // Detect newly hatched pet — kể cả hatch trong game
+                val existingSession = _state.value.sessions.find { it.id == sessionId }
+                val previousAllPetIds = existingSession?.let {
+                    (it.inventory.pets.map { p -> p.id } + it.petHutch.map { p -> p.id }).toSet()
+                } ?: emptySet()
                 val allNewPets = pets + hutchPets
-                val hatchedPet = if (previousPetIds != null) {
-                    allNewPets.firstOrNull { it.id !in previousPetIds }
-                } else null
+                val allNewPetIds = allNewPets.map { it.id }.toSet()
+                val newlyAddedPetIds = allNewPetIds - previousAllPetIds
+                val previousPetIds = preHatchPetIds.remove(sessionId)
+                val hatchedPet = when {
+                    previousPetIds != null -> allNewPets.firstOrNull { it.id !in previousPetIds }
+                    newlyAddedPetIds.isNotEmpty() -> allNewPets.firstOrNull { it.id in newlyAddedPetIds }
+                    else -> null
+                }
+                val newPetCount = newlyAddedPetIds.size
 
                 AppLog.d(TAG, "[Storage] availableStorages=$availableStorages hutch=$hutchCapacitySlots silo=$siloCapacitySlots decorShed=$decorShedCapacitySlots")
 
