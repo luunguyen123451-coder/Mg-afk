@@ -1488,15 +1488,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val actions = clients[sessionId]?.actions ?: return
         val session = _state.value.sessions.find { it.id == sessionId } ?: return
 
+        // Lấy eggId TRƯỚC khi push vào queue
+        val eggId = session.gardenEggs.find { it.tileId == slot }?.eggId.orEmpty()
+
         // Push vào queue: mỗi hatch lưu snapshot tại thời điểm đó
         val currentPetIds = (session.inventory.pets.map { it.id } + session.petHutch.map { it.id }).toSet()
         preHatchPetIds[sessionId] = currentPetIds  // legacy
-        pendingHatches.getOrPut(sessionId) { ArrayDeque() }.addLast(eggId to currentPetIds)
+        if (eggId.isNotBlank()) {
+            pendingHatches.getOrPut(sessionId) { ArrayDeque() }.addLast(eggId to currentPetIds)
+        }
 
         // Save egg ID for the hatch animation
-        val eggId = session.gardenEggs.find { it.tileId == slot }?.eggId.orEmpty()
-
-        // OPTIMISTIC: remove egg from gardenEggs, store eggId for animation
         val previousEggs = session.gardenEggs
         updateSession(sessionId) { s ->
             s.copy(
@@ -2364,8 +2366,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Detect newly hatched pet — kể cả hatch trong game (không qua app)
                 // So sánh với pet list của session hiện tại TRƯỚC khi update
-                val existingSession = _state.value.sessions.find { it.id == sessionId }
-                val previousAllPetIds = existingSession?.let {
+                val prevSession = _state.value.sessions.find { it.id == sessionId }
+                val previousAllPetIds = prevSession?.let {
                     (it.inventory.pets.map { p -> p.id } + it.petHutch.map { p -> p.id }).toSet()
                 } ?: emptySet()
                 val allNewPets = pets + hutchPets
