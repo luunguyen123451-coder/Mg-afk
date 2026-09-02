@@ -179,6 +179,7 @@ fun InventoryCard(
     toolShackToolIds: Set<String> = emptySet(),
     onPlantSeed: (species: String) -> Unit = {},
     onGrowEgg: (eggId: String) -> Unit = {},
+    onGrowAllEggs: (eggId: String) -> Unit = { _ -> },
     onPlantGardenPlant: (itemId: String) -> Unit = {},
     onToggleLock: (itemId: String) -> Unit = {},
     onSellPet: (itemId: String) -> Unit = {},

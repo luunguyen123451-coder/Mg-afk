@@ -143,7 +143,11 @@ class SessionRepository(private val context: Context) {
         val raw = context.dataStore.data.map { it[KEY_SETTINGS] }.first()
         if (raw.isNullOrBlank()) return AppSettings()
         return try {
-            json.decodeFromString<AppSettings>(raw).migrated()
+            json.decodeFromString<AppSettings>(raw).let { s ->
+                val legacy = s.alarmSchedule ?: return@let s
+                if (s.alarmSchedules.isNotEmpty()) return@let s.copy(alarmSchedule = null)
+                s.copy(alarmSchedules = listOf(legacy.copy(label = legacy.label.ifBlank { "Schedule 1" })), alarmSchedule = null)
+            }
         } catch (_: Exception) {
             AppSettings()
         }
