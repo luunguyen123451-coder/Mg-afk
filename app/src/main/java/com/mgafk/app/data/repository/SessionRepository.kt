@@ -143,7 +143,7 @@ class SessionRepository(private val context: Context) {
         val raw = context.dataStore.data.map { it[KEY_SETTINGS] }.first()
         if (raw.isNullOrBlank()) return AppSettings()
         return try {
-            json.decodeFromString<AppSettings>(raw)
+            json.decodeFromString<AppSettings>(raw).migrated()
         } catch (_: Exception) {
             AppSettings()
         }
