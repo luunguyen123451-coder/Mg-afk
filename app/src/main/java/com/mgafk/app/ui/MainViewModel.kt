@@ -1477,18 +1477,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Track pet IDs before hatch to detect the new pet in InventoryChanged
-    private val preHatchPetIds = mutableMapOf<String, Set<String>>() // sessionId -> pet IDs before hatch
+    // Track pending hatches: queue of (eggId, petIdsBeforeHatch) per session
+    private val pendingHatches = mutableMapOf<String, ArrayDeque<Pair<String, Set<String>>>>()
     private val pendingHatchJobs = mutableMapOf<String, Job>()
+    // Legacy - kept for rollback compat
+    private val preHatchPetIds = mutableMapOf<String, Set<String>>()
 
     /** Hatch a mature egg, optimistically remove it from garden eggs. */
     fun hatchEgg(sessionId: String, slot: Int) {
         val actions = clients[sessionId]?.actions ?: return
         val session = _state.value.sessions.find { it.id == sessionId } ?: return
 
-        // Save current pet IDs to detect the new one later
+        // Push vào queue: mỗi hatch lưu snapshot tại thời điểm đó
         val currentPetIds = (session.inventory.pets.map { it.id } + session.petHutch.map { it.id }).toSet()
-        preHatchPetIds[sessionId] = currentPetIds
+        preHatchPetIds[sessionId] = currentPetIds  // legacy
+        pendingHatches.getOrPut(sessionId) { ArrayDeque() }.addLast(eggId to currentPetIds)
 
         // Save egg ID for the hatch animation
         val eggId = session.gardenEggs.find { it.tileId == slot }?.eggId.orEmpty()
@@ -2359,26 +2362,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingCleanseJobs.remove(key)?.cancel()
                 }
 
-                // Detect newly hatched pet — kể cả hatch trong game
-                val previousAllPetIds = run {
-                    val s = _state.value.sessions.find { it.id == sessionId }
-                    ((s?.inventory?.pets?.map { p -> p.id } ?: emptyList()) +
-                     (s?.petHutch?.map { p -> p.id } ?: emptyList())).toSet()
-                }
+                // Detect newly hatched pet — kể cả hatch trong game (không qua app)
+                // So sánh với pet list của session hiện tại TRƯỚC khi update
+                val existingSession = _state.value.sessions.find { it.id == sessionId }
+                val previousAllPetIds = existingSession?.let {
+                    (it.inventory.pets.map { p -> p.id } + it.petHutch.map { p -> p.id }).toSet()
+                } ?: emptySet()
                 val allNewPets = pets + hutchPets
                 val allNewPetIds = allNewPets.map { it.id }.toSet()
                 val newlyAddedPetIds = allNewPetIds - previousAllPetIds
-                val previousPetIds = preHatchPetIds.remove(sessionId)
-                val hatchedPet = when {
-                    previousPetIds != null -> allNewPets.firstOrNull { it.id !in previousPetIds }
-                    newlyAddedPetIds.isNotEmpty() -> allNewPets.firstOrNull { it.id in newlyAddedPetIds }
-                    else -> null
+
+                // Dùng pendingHatches queue (hatch qua app — Hatch All / Auto Hatch / thủ công)
+                // Queue giữ đúng thứ tự và snapshot trước mỗi hatch
+                val queue = pendingHatches[sessionId]
+                val detectedHatches = mutableListOf<Pair<String, InventoryPetItem>>()
+
+                if (queue != null && queue.isNotEmpty()) {
+                    val seen = mutableSetOf<String>()
+                    while (queue.isNotEmpty()) {
+                        val (pendEggId, petsBefore) = queue.removeFirst()
+                        val newPet = allNewPets.firstOrNull { it.id !in petsBefore && it.id !in seen }
+                        if (newPet != null) {
+                            detectedHatches.add(pendEggId to newPet)
+                            seen.add(newPet.id)
+                        }
+                    }
+                    if (queue.isEmpty()) pendingHatches.remove(sessionId)
                 }
+                preHatchPetIds.remove(sessionId)
+
+                val hatchedPet = detectedHatches.firstOrNull()?.second
+                // Tính số pet mới thêm vào (để đếm nhiều hatch cùng lúc)
                 val newPetCount = newlyAddedPetIds.size
 
                 AppLog.d(TAG, "[Storage] availableStorages=$availableStorages hutch=$hutchCapacitySlots silo=$siloCapacitySlots decorShed=$decorShedCapacitySlots")
 
-                // Capture eggId trước updateSession
+                // Capture eggId TRƯỚC updateSession (vì updateSession không xóa lastHatchedEggId ở đây)
                 val pendingEggId = _state.value.sessions
                     .find { it.id == sessionId }?.lastHatchedEggId.orEmpty()
 
@@ -2406,12 +2425,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runAutoGrowEggs(sessionId, eggs, freeTilesNow)
 
                 // BLP counter update
-                if (hatchedPet != null && pendingEggId.isNotBlank()) {
-                    val isRainbow = hatchedPet.mutations.any { it.lowercase().contains("rainbow") }
-                    val isGold = hatchedPet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
-                    val updated = (_state.value.blpCounters[pendingEggId] ?: BLPCounter())
-                        .onHatch(hatchedPet.petSpecies, isRainbow, isGold)
-                    val newMap = _state.value.blpCounters + (pendingEggId to updated)
+                val updatedBLP = _state.value.blpCounters.toMutableMap()
+                var blpChanged = false
+
+                // 1. Từ queue (Hatch All / Auto Hatch / hatch thủ công qua app)
+                detectedHatches.forEach { (eggId, pet) ->
+                    if (eggId.isBlank()) return@forEach
+                    val isRainbow = pet.mutations.any { it.lowercase().contains("rainbow") }
+                    val isGold = pet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
+                    updatedBLP[eggId] = (updatedBLP[eggId] ?: BLPCounter()).onHatch(pet.petSpecies, isRainbow, isGold)
+                    blpChanged = true
+                }
+
+                // 2. Fallback: hatch trong game (không qua app) — dùng sourceEggId
+                if (!blpChanged && newlyAddedPetIds.isNotEmpty()) {
+                    allNewPets.filter { it.id in newlyAddedPetIds && it.sourceEggId.isNotBlank() }
+                        .forEach { pet ->
+                            val isRainbow = pet.mutations.any { it.lowercase().contains("rainbow") }
+                            val isGold = pet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
+                            updatedBLP[pet.sourceEggId] = (updatedBLP[pet.sourceEggId] ?: BLPCounter())
+                                .onHatch(pet.petSpecies, isRainbow, isGold)
+                            blpChanged = true
+                        }
+                }
+
+                if (blpChanged) {
+                    val newMap = updatedBLP.toMap()
                     _state.update { it.copy(blpCounters = newMap) }
                     viewModelScope.launch { repo.saveBlpCounters(newMap) }
                 }
