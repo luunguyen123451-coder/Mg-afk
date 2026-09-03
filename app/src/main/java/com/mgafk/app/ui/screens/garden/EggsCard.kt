@@ -161,15 +161,31 @@ fun EggsCard(
         }
     }
 
+    val matureCount = eggs.count { now >= it.maturedAt }
+
     AppCard(
         title = "Eggs",
         trailing = {
-            Text(
-                text = "${eggs.size} eggs",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = Accent.copy(alpha = 0.7f),
-            )
+            if (matureCount > 0 && apiReady) {
+                androidx.compose.material3.TextButton(
+                    onClick = onHatchAll,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        "Hatch All ($matureCount)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Accent,
+                    )
+                }
+            } else {
+                Text(
+                    "${eggs.size} eggs",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Accent.copy(alpha = 0.7f),
+                )
+            }
         },
         collapsible = true,
         persistKey = "garden.eggs",
