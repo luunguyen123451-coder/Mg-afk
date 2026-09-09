@@ -2368,11 +2368,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Detect newly hatched pet — kể cả hatch trong game (không qua app)
                 // So sánh với pet list của session hiện tại TRƯỚC khi update
                 val prevSession = _state.value.sessions.find { it.id == sessionId }
+                // Track TẤT CẢ pet IDs: active + inventory + hutch
+                // Swap/equip chỉ di chuyển pet giữa các slot → tổng không đổi → không trigger BLP
                 val previousAllPetIds = prevSession?.let {
-                    (it.inventory.pets.map { p -> p.id } + it.petHutch.map { p -> p.id }).toSet()
+                    (it.pets.map { p -> p.id } +
+                     it.inventory.pets.map { p -> p.id } +
+                     it.petHutch.map { p -> p.id }).toSet()
                 } ?: emptySet()
                 val allNewPets = pets + hutchPets
+                // allNewPets bao gồm inventory + hutch pets (từ event)
+                // active pets được parse riêng từ event, lấy từ session sau update
                 val allNewPetIds = allNewPets.map { it.id }.toSet()
+                // Pet thực sự MỚI = không có trong BẤT KỲ slot nào trước đó
                 val newlyAddedPetIds = allNewPetIds - previousAllPetIds
 
                 // Dùng pendingHatches queue (hatch qua app — Hatch All / Auto Hatch / thủ công)
