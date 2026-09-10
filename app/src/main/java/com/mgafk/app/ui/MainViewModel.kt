@@ -2367,23 +2367,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Detect newly hatched pet — kể cả hatch trong game (không qua app)
                 // So sánh với pet list của session hiện tại TRƯỚC khi update
-                val prevSession = _state.value.sessions.find { it.id == sessionId }
-                // Track TẤT CẢ pet IDs: active + inventory + hutch
-                // Swap/equip chỉ di chuyển pet giữa các slot → tổng không đổi → không trigger BLP
-                val previousAllPetIds = prevSession?.let {
-                    (it.pets.map { p -> p.id } +
-                     it.inventory.pets.map { p -> p.id } +
-                     it.petHutch.map { p -> p.id }).toSet()
-                } ?: emptySet()
                 val allNewPets = pets + hutchPets
-                // allNewPets bao gồm inventory + hutch pets (từ event)
-                // active pets được parse riêng từ event, lấy từ session sau update
-                val allNewPetIds = allNewPets.map { it.id }.toSet()
-                // Pet thực sự MỚI = không có trong BẤT KỲ slot nào trước đó
-                val newlyAddedPetIds = allNewPetIds - previousAllPetIds
 
-                // Dùng pendingHatches queue (hatch qua app — Hatch All / Auto Hatch / thủ công)
-                // Queue giữ đúng thứ tự và snapshot trước mỗi hatch
+                // Dùng queue để detect hatch — chỉ được push khi gọi hatchEgg()
+                // Không dùng newlyAddedPetIds vì swap/equip/change team cũng làm pet list thay đổi
                 val queue = pendingHatches[sessionId]
                 val detectedHatches = mutableListOf<Pair<String, InventoryPetItem>>()
 
@@ -2402,8 +2389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preHatchPetIds.remove(sessionId)
 
                 val hatchedPet = detectedHatches.firstOrNull()?.second
-                // Tính số pet mới thêm vào (để đếm nhiều hatch cùng lúc)
-                val newPetCount = newlyAddedPetIds.size
+                val newPetCount = detectedHatches.size
 
                 AppLog.d(TAG, "[Storage] availableStorages=$availableStorages hutch=$hutchCapacitySlots silo=$siloCapacitySlots decorShed=$decorShedCapacitySlots")
 
@@ -2434,29 +2420,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val freeTilesNow = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
                 runAutoGrowEggs(sessionId, eggs, freeTilesNow)
 
-                // BLP counter update
+                // BLP counter update — CHỈ dùng queue (hatch qua app)
+                // Fallback sourceEggId cho hatch trong game (không qua app)
                 val updatedBLP = _state.value.blpCounters.toMutableMap()
                 var blpChanged = false
 
-                // 1. Từ queue (Hatch All / Auto Hatch / hatch thủ công qua app)
+                // Từ queue: Hatch All / Auto Hatch / hatch thủ công qua app
                 detectedHatches.forEach { (eggId, pet) ->
                     if (eggId.isBlank()) return@forEach
                     val isRainbow = pet.mutations.any { it.lowercase().contains("rainbow") }
                     val isGold = pet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
                     updatedBLP[eggId] = (updatedBLP[eggId] ?: BLPCounter()).onHatch(pet.petSpecies, isRainbow, isGold)
                     blpChanged = true
-                }
-
-                // 2. Fallback: hatch trong game (không qua app) — dùng sourceEggId
-                if (!blpChanged && newlyAddedPetIds.isNotEmpty()) {
-                    allNewPets.filter { it.id in newlyAddedPetIds && it.sourceEggId.isNotBlank() }
-                        .forEach { pet ->
-                            val isRainbow = pet.mutations.any { it.lowercase().contains("rainbow") }
-                            val isGold = pet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
-                            updatedBLP[pet.sourceEggId] = (updatedBLP[pet.sourceEggId] ?: BLPCounter())
-                                .onHatch(pet.petSpecies, isRainbow, isGold)
-                            blpChanged = true
-                        }
                 }
 
                 if (blpChanged) {
