@@ -15,6 +15,14 @@ enum class WakeLockMode {
 }
 
 @Serializable
+enum class PlantPlacementMode {
+    /** Planting by hand drops the seed on the lowest empty tile. */
+    FREE_TILE,
+    /** Planting by hand opens the garden grid and plants on the tile tapped. */
+    GRID,
+}
+
+@Serializable
 enum class PurchaseMode {
     /** Tap buys x1, long-press buys all remaining stock. */
     HYBRID,
@@ -83,12 +91,15 @@ data class AppSettings(
     // Shops
     val purchaseMode: PurchaseMode = PurchaseMode.BULK,
 
+    // Garden - where a seed or a potted plant lands when planted by hand
+    val plantPlacementMode: PlantPlacementMode = PlantPlacementMode.FREE_TILE,
+
     // Storages - auto-consolidate inventory stacks into matching storage slots
     val autoStockSeedSilo: Boolean = false,
     val autoStockDecorShed: Boolean = false,
     val autoStockToolShack: Boolean = false,
 
-    // Auto-grow eggs: danh sách eggId sẽ tự động grow khi có trong inventory + có tile trống
+    // Auto-grow eggs: tự động grow khi có trong inventory + có tile trống
     val autoGrowEggIds: List<String> = emptyList(),
 
     // Auto-hatch eggs: tự động hatch tất cả trứng đã đủ thời gian

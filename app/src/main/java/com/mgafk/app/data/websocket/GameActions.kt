@@ -1,5 +1,10 @@
 package com.mgafk.app.data.websocket
 
+import com.mgafk.app.data.model.CrystalShard
+import com.mgafk.app.data.model.CrystalType
+import com.mgafk.app.data.model.GardenTileType
+import com.mgafk.app.data.model.PetTeamEmblem
+import com.mgafk.app.data.repository.Crystals
 import com.mgafk.app.data.repository.MgApi
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -191,10 +196,24 @@ class GameActions(
     fun waterPlant(slot: Int) =
         game("WaterPlant", obj("slot" to JsonPrimitive(slot)))
 
-    fun harvestCrop(slot: Int, slotsIndex: Int? = null) {
+    /**
+     * Harvests the crop on grow slot [slotsIndex] of dirt tile [slot].
+     *
+     * [cropItemId] is the id the harvested Produce item will carry in the inventory: like
+     * [potPlant], the client mints it and the server honours it. Bundle 1116 made it
+     * mandatory - the reducer needs an id to build the produce item, so a harvest without
+     * one is rejected while every other action keeps working. Any fresh UUID does; the
+     * caller can drop it, since we read the inventory back from server state anyway.
+     */
+    fun harvestCrop(
+        slot: Int,
+        slotsIndex: Int? = null,
+        cropItemId: String = UUID.randomUUID().toString(),
+    ) {
         val params = buildJsonObject {
             put("slot", JsonPrimitive(slot))
             if (slotsIndex != null) put("slotsIndex", JsonPrimitive(slotsIndex))
+            put("cropItemId", JsonPrimitive(cropItemId))
         }
         game("HarvestCrop", params)
     }
@@ -230,6 +249,62 @@ class GameActions(
             "tileObjectIdx" to JsonPrimitive(tileObjectIdx),
             "growSlotIdx" to JsonPrimitive(growSlotIdx),
         ))
+
+    /**
+     * Plants [shard] on an empty tile, where it runs for [Crystals.FRESH_SHARD_SECONDS] (or for
+     * whatever time it had left, when the shard was picked back up).
+     *
+     * Crystals go on the boardwalk as well as the dirt, hence [tileType].
+     */
+    fun placeCrystal(shard: CrystalShard, tileType: GardenTileType, localTileIndex: Int) =
+        game("PlaceCrystal", obj(
+            "tileType" to JsonPrimitive(tileType.name),
+            "localTileIndex" to JsonPrimitive(localTileIndex),
+            "item" to shard.toJson(),
+            "intent" to buildJsonObject { put("type", JsonPrimitive(PLACE_INTENT)) },
+        ))
+
+    /**
+     * Fuses [shard] into the crystal already standing on that tile, extending it by
+     * [mergeGainSeconds].
+     *
+     * There is no separate fuse command: this is the same PlaceCrystal with a merge intent.
+     * The server rejects a gain that would push the crystal past its ceiling, so pass exactly
+     * what fits (see [Crystals.mergeGainSeconds]) - and note that the shard is consumed whole
+     * either way, so anything over the ceiling is lost.
+     */
+    fun fuseCrystal(
+        shard: CrystalShard,
+        tileType: GardenTileType,
+        localTileIndex: Int,
+        mergeGainSeconds: Int,
+    ) = game("PlaceCrystal", obj(
+        "tileType" to JsonPrimitive(tileType.name),
+        "localTileIndex" to JsonPrimitive(localTileIndex),
+        "item" to shard.toJson(),
+        "intent" to buildJsonObject {
+            put("type", JsonPrimitive(MERGE_INTENT))
+            put("mergeGainSeconds", JsonPrimitive(mergeGainSeconds))
+        },
+    ))
+
+    /**
+     * Takes the crystal on that tile back into the inventory, keeping its remaining time.
+     *
+     * [itemId] is the id the returned inventory item will carry: the client mints it, as it
+     * does for harvested crops and potted plants. The server refuses when the inventory is full.
+     */
+    fun pickupCrystal(
+        crystalType: CrystalType,
+        tileType: GardenTileType,
+        localTileIndex: Int,
+        itemId: String = UUID.randomUUID().toString(),
+    ) = game("PickupCrystal", obj(
+        "tileType" to JsonPrimitive(tileType.name),
+        "localTileIndex" to JsonPrimitive(localTileIndex),
+        "crystalType" to JsonPrimitive(crystalType.id),
+        "itemId" to JsonPrimitive(itemId),
+    ))
 
     fun removeGardenObject(slot: Int, slotType: String) =
         game("RemoveGardenObject", obj("slot" to JsonPrimitive(slot), "slotType" to JsonPrimitive(slotType)))
@@ -390,8 +465,15 @@ class GameActions(
             "toPetTeamIndex" to JsonPrimitive(toPetTeamIndex),
         ))
 
-    fun setPetTeamEmblem(teamId: String, emblem: String) =
-        game("SetPetTeamEmblem", obj("teamId" to JsonPrimitive(teamId), "emblem" to JsonPrimitive(emblem)))
+    /**
+     * Sets a team's badge. The emblem travels as an object discriminated on `type`, never as a
+     * string - a string is dropped by the reducer. An emblem shape this build does not know
+     * ([PetTeamEmblem.Unknown]) is not sent at all rather than guessed at.
+     */
+    fun setPetTeamEmblem(teamId: String, emblem: PetTeamEmblem) {
+        val payload = emblem.toJson() ?: return
+        game("SetPetTeamEmblem", obj("teamId" to JsonPrimitive(teamId), "emblem" to payload))
+    }
 
     // =====================
     // Inventory / Storage
@@ -502,6 +584,10 @@ class GameActions(
 
         /** Envelope `type` for the commands that go through [quinoaCommand]. */
         private const val COMMAND_ENVELOPE = "QuinoaCommand"
+
+        /** The two `PlaceCrystal` intents: plant a shard, or fuse it into a standing crystal. */
+        private const val PLACE_INTENT = "place"
+        private const val MERGE_INTENT = "merge"
 
         /**
          * Quinoa messages the game still sends flat, as of client version 1029.

@@ -52,9 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.mgafk.app.data.repository.MgApi
 import com.mgafk.app.ui.components.SpriteImage
 import com.mgafk.app.ui.theme.StatusError
@@ -68,6 +67,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mgafk.app.data.model.AlarmSchedule
 import com.mgafk.app.data.model.AppSettings
+import com.mgafk.app.data.model.PlantPlacementMode
 import com.mgafk.app.data.model.PurchaseMode
 import com.mgafk.app.data.model.WakeLockMode
 import com.mgafk.app.data.model.isSilentAt
@@ -90,6 +90,7 @@ fun SettingsCards(
 ) {
     BackgroundCard(settings = settings, onUpdate = onUpdate)
     ShopsSettingsCard(settings = settings, onUpdate = onUpdate)
+    GardenSettingsCard(settings = settings, onUpdate = onUpdate)
     StoragesCard(settings = settings, availableStorages = availableStorages, onUpdate = onUpdate)
     AutoEggCard(settings = settings, onUpdate = onUpdate)
     GameplayCard(settings = settings, onUpdate = onUpdate)
@@ -431,6 +432,60 @@ private fun ShopsSettingsCard(settings: AppSettings, onUpdate: (AppSettings) -> 
     }
 }
 
+@Composable
+private fun GardenSettingsCard(settings: AppSettings, onUpdate: (AppSettings) -> Unit) {
+    AppCard(title = "Garden", collapsible = true, persistKey = "settings_garden") {
+        Text("Manual planting", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            PlantPlacementMode.entries.forEach { mode ->
+                val selected = mode == settings.plantPlacementMode
+                val label = when (mode) {
+                    PlantPlacementMode.FREE_TILE -> "Free tiles"
+                    PlantPlacementMode.GRID -> "Grid"
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (selected) Accent.copy(alpha = 0.12f)
+                            else SurfaceBorder.copy(alpha = 0.2f)
+                        )
+                        .then(
+                            if (selected) Modifier.border(1.dp, Accent.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            else Modifier.border(1.dp, SurfaceBorder.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        )
+                        .clickable { onUpdate(settings.copy(plantPlacementMode = mode)) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) Accent else TextSecondary,
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        val hint = when (settings.plantPlacementMode) {
+            PlantPlacementMode.FREE_TILE -> "Planting drops the seed on the first empty tile."
+            PlantPlacementMode.GRID -> "Planting opens the garden grid so you pick the tile."
+        }
+        Text(hint, fontSize = 10.sp, color = TextMuted)
+    }
+}
+
 // ── Storages ──
 
 @Composable
@@ -486,7 +541,6 @@ private fun StoragesCard(
         }
     }
 }
-
 
 // ── Auto Grow & Auto Hatch ──
 

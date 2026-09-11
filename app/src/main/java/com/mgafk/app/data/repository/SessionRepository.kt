@@ -11,6 +11,7 @@ import com.mgafk.app.data.model.AlertConfig
 import com.mgafk.app.data.model.AppSettings
 import com.mgafk.app.data.model.BLPCounter
 import com.mgafk.app.data.model.WatchlistItem
+import com.mgafk.app.data.model.migrated
 import com.mgafk.app.data.model.PetTeam
 import com.mgafk.app.data.model.Session
 import kotlinx.coroutines.flow.first
@@ -32,7 +33,6 @@ class SessionRepository(private val context: Context) {
         private val KEY_PET_TIP = booleanPreferencesKey("mgafk.petTipDismissed")
         private val KEY_COLLAPSED_CARDS = stringPreferencesKey("mgafk.collapsedCards")
         private val KEY_SETTINGS = stringPreferencesKey("mgafk.settings")
-        private val KEY_PET_TEAMS = stringPreferencesKey("mgafk.petTeams")
         private val KEY_TEAM_TIP = booleanPreferencesKey("mgafk.teamTipDismissed")
         private val KEY_GARDEN_TIP = booleanPreferencesKey("mgafk.gardenTipDismissed")
         private val KEY_SEED_TIP = booleanPreferencesKey("mgafk.seedTipDismissed")
@@ -219,16 +219,6 @@ class SessionRepository(private val context: Context) {
         }
     }
 
-    suspend fun loadPetTeams(): List<PetTeam> {
-        val raw = context.dataStore.data.map { it[KEY_PET_TEAMS] }.first()
-        if (raw.isNullOrBlank()) return emptyList()
-        return try {
-            json.decodeFromString<List<PetTeam>>(raw)
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     suspend fun getLastNotifiedVersion(): String? {
         return context.dataStore.data.map { it[KEY_NOTIFIED_VERSION] }.first()
     }
@@ -247,13 +237,16 @@ class SessionRepository(private val context: Context) {
         if (raw.isNullOrBlank()) return emptyList()
         return try { json.decodeFromString(raw) } catch (_: Exception) { emptyList() }
     }
-
+    suspend fun loadWatchlist(): List<WatchlistItem> {
+        val raw = context.dataStore.data.map { it[KEY_WATCHLIST] }.first()
+        if (raw.isNullOrBlank()) return emptyList()
+        return try { json.decodeFromString(raw) } catch (_: Exception) { emptyList() }
+    }
     suspend fun saveWatchlist(items: List<WatchlistItem>) {
         context.dataStore.edit { prefs ->
             prefs[KEY_WATCHLIST] = json.encodeToString(items)
         }
     }
-
     private val KEY_BLP = stringPreferencesKey("mgafk.blp_counters")
 
     suspend fun loadBlpCounters(): Map<String, BLPCounter> {
@@ -264,11 +257,17 @@ class SessionRepository(private val context: Context) {
             emptyMap()
         }
     }
-
+    suspend fun loadBlpCounters(): Map<String, BLPCounter> {
+        val raw = context.dataStore.data.map { it[KEY_BLP] }.first() ?: return emptyMap()
+        return try {
+            json.decodeFromString(raw)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
     suspend fun saveBlpCounters(counters: Map<String, BLPCounter>) {
         context.dataStore.edit { prefs ->
             prefs[KEY_BLP] = json.encodeToString(counters)
         }
     }
-
 }

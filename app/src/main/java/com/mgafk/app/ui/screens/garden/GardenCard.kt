@@ -142,21 +142,11 @@ private fun fmtQty(q: Int): String = when {
     else -> "$q"
 }
 
-private fun computeSizePercent(targetScale: Double, maxScale: Double): Double {
-    if (maxScale <= 1.0) return if (targetScale >= 1.0) 100.0 else targetScale * 100.0
-    return if (targetScale <= 1.0) {
-        targetScale * 50.0
-    } else {
-        50.0 + (targetScale - 1.0) / (maxScale - 1.0) * 50.0
-    }.coerceIn(0.0, 100.0)
-}
-
 /** Pre-resolved plant data - computed once per plants change, reused by filters + tiles. */
 internal data class ResolvedPlant(
     val snapshot: GardenPlantSnapshot,
     val rarity: String?,
     val cropSprite: String?,
-    val maxScale: Double,
     val displayName: String,
     val sellPrice: Long?,
 )
@@ -195,10 +185,10 @@ private enum class SortMode(val label: String) {
 }
 
 private fun GardenEntry.sizePercent(): Double = when (this) {
-    is GardenEntry.SingleCrop -> computeSizePercent(plant.snapshot.targetScale, plant.maxScale)
+    is GardenEntry.SingleCrop -> plant.snapshot.size.toDouble()
     is GardenEntry.MultiSlotPlant -> {
         if (crops.isEmpty()) 0.0
-        else crops.map { computeSizePercent(it.snapshot.targetScale, it.maxScale) }.average()
+        else crops.map { it.snapshot.size.toDouble() }.average()
     }
 }
 
@@ -238,9 +228,8 @@ fun GardenCard(
                 snapshot = plant,
                 rarity = entry?.rarity,
                 cropSprite = entry?.cropSprite,
-                maxScale = entry?.maxScale ?: 1.0,
                 displayName = entry?.name?.removeSuffix(" Seed") ?: plant.species,
-                sellPrice = PriceCalculator.calculateCropSellPrice(plant.species, plant.targetScale, plant.mutations),
+                sellPrice = PriceCalculator.calculateCropSellPrice(plant.species, plant.size, plant.mutations),
             )
         }
     }
@@ -625,7 +614,7 @@ private fun ViewModeChip(label: String, selected: Boolean, onClick: () -> Unit) 
 @Composable
 private fun GardenPlantTile(rp: ResolvedPlant) {
     val color = rarityColor(rp.rarity)
-    val sizePercent = computeSizePercent(rp.snapshot.targetScale, rp.maxScale)
+    val sizePercent = rp.snapshot.size.toDouble()
 
     Column(
         modifier = Modifier
@@ -669,8 +658,8 @@ private fun GardenPlantTile(rp: ResolvedPlant) {
             )
         }
 
-        if (rp.snapshot.mutations.isNotEmpty()) {
-            MutationIcons(mutations = rp.snapshot.mutations)
+        if (rp.snapshot.mutations.isNotEmpty() || rp.snapshot.preserved) {
+            MutationIcons(mutations = rp.snapshot.mutations, preserved = rp.snapshot.preserved)
         }
     }
 }
@@ -682,7 +671,7 @@ private fun MultiSlotPlantTile(entry: GardenEntry.MultiSlotPlant) {
     val color = rarityColor(entry.rarity)
     val species = remember(entry.tileId) { entry.crops.firstOrNull()?.snapshot?.species ?: "" }
     val slots = remember(entry.crops) {
-        entry.crops.map { PlantSlotRender(it.snapshot.species, it.snapshot.mutations, it.snapshot.targetScale) }
+        entry.crops.map { PlantSlotRender(it.snapshot.species, it.snapshot.mutations, MgApi.cropSizeMultiplier(it.snapshot.species, it.snapshot.size)) }
     }
 
     Column(
@@ -767,11 +756,20 @@ private fun SizeBar(percent: Double, color: Color, showLabel: Boolean = true) {
 // ── Mutation icons ──
 
 @Composable
-private fun MutationIcons(mutations: List<String>) {
+private fun MutationIcons(mutations: List<String>, preserved: Boolean = false) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // First, and outside the four-mutation cap: preservation is what decides whether those
+        // mutations can still change, so it is the one badge that must never be crowded out.
+        if (preserved) {
+            SpriteImage(
+                url = MgApi.preservationSpriteUrl,
+                size = 12.dp,
+                contentDescription = "Preserved",
+            )
+        }
         sortMutations(mutations).take(4).forEach { mutation ->
             SpriteImage(
                 url = mutationSpriteUrl(mutation),
@@ -797,7 +795,7 @@ private fun PlantDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val color = rarityColor(plant.rarity)
-    val sizePercent = computeSizePercent(plant.snapshot.targetScale, plant.maxScale)
+    val sizePercent = plant.snapshot.size.toDouble()
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -849,7 +847,7 @@ private fun PlantDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("Size", fontSize = 12.sp, color = TextSecondary)
-                    Text("${sizePercent.toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    Text("${sizePercent.toInt()}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                 }
                 SizeBar(percent = sizePercent, color = color, showLabel = false)
 
@@ -876,6 +874,23 @@ private fun PlantDetailDialog(
                 ) {
                     Text("Tile", fontSize = 12.sp, color = TextSecondary)
                     Text("#${plant.snapshot.tileId}", fontSize = 12.sp, color = TextPrimary)
+                }
+
+                if (plant.snapshot.preserved) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Preserved", fontSize = 12.sp, color = TextSecondary)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("weather cannot change it", fontSize = 11.sp, color = TextMuted)
+                            SpriteImage(url = MgApi.preservationSpriteUrl, size = 16.dp, contentDescription = "Preserved")
+                        }
+                    }
                 }
 
                 // Mutations
@@ -1037,7 +1052,7 @@ private fun MultiSlotPlantDetailDialog(
     val color = rarityColor(plant.rarity)
     val species = remember(plant.tileId) { plant.crops.firstOrNull()?.snapshot?.species ?: "" }
     val headerSlots = remember(plant.crops) {
-        plant.crops.map { PlantSlotRender(it.snapshot.species, it.snapshot.mutations, it.snapshot.targetScale) }
+        plant.crops.map { PlantSlotRender(it.snapshot.species, it.snapshot.mutations, MgApi.cropSizeMultiplier(it.snapshot.species, it.snapshot.size)) }
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -1174,7 +1189,7 @@ private fun CropSlotRow(
     onWater: () -> Unit,
     onCleanse: () -> Unit,
 ) {
-    val sizePercent = computeSizePercent(crop.snapshot.targetScale, crop.maxScale)
+    val sizePercent = crop.snapshot.size.toDouble()
     val isMature = crop.snapshot.endTime > 0 && now >= crop.snapshot.endTime
     val canWater = !isMature && wateringCans > 0
     val canCleanse = cropCleansers > 0 && crop.snapshot.mutations.isNotEmpty()
@@ -1212,8 +1227,11 @@ private fun CropSlotRow(
                         Text(remaining, fontSize = 9.sp, color = TextSecondary)
                     }
                 }
-                if (crop.snapshot.mutations.isNotEmpty()) {
+                if (crop.snapshot.mutations.isNotEmpty() || crop.snapshot.preserved) {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        if (crop.snapshot.preserved) {
+                            SpriteImage(url = MgApi.preservationSpriteUrl, size = 14.dp, contentDescription = "Preserved")
+                        }
                         sortMutations(crop.snapshot.mutations).forEach { mutation ->
                             SpriteImage(url = mutationSpriteUrl(mutation), size = 14.dp, contentDescription = mutation)
                         }
@@ -1228,7 +1246,7 @@ private fun CropSlotRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("${sizePercent.toInt()}%", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(28.dp))
+            Text("${sizePercent.toInt()}", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(28.dp))
             Box(modifier = Modifier.weight(1f)) {
                 SizeBar(percent = sizePercent, color = color, showLabel = false)
             }

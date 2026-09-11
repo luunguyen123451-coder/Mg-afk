@@ -45,6 +45,15 @@ data class Session(
     val playersList: List<PlayerSnapshot> = emptyList(),
     val gameVersion: String = "",
     val freePlantTiles: Int = 0,
+    /** Crystals standing in the garden, on the dirt and on the boardwalk alike. */
+    val crystals: List<PlacedCrystal> = emptyList(),
+    /** Every tile of either map that already holds something, crystals included. */
+    val occupiedTiles: Set<GardenTileRef> = emptySet(),
+    /**
+     * When [crystals] was last read off the wire. Their remaining time only counts down while
+     * the player is in the room, so a live countdown measures from here and stops on a drop.
+     */
+    val crystalsReadAtMs: Long = 0L,
     val favoritedItemIds: Set<String> = emptySet(),
     val lastHatchedPet: InventoryPetItem? = null,
     val lastHatchedEggId: String = "",
@@ -140,14 +149,16 @@ data class InventoryEggItem(
 data class InventoryProduceItem(
     val id: String = "",
     val species: String = "",
-    val scale: Double = 0.0,
+    /** Whole 50..100, see CropSize. */
+    val size: Int = com.mgafk.app.data.repository.CropSize.MIN,
     val mutations: List<String> = emptyList(),
 )
 
 @Serializable
 data class InventoryPlantSlot(
     val species: String = "",
-    val targetScale: Double = 0.0,
+    /** Whole 50..100, see CropSize. */
+    val size: Int = com.mgafk.app.data.repository.CropSize.MIN,
     val mutations: List<String> = emptyList(),
 )
 
@@ -164,7 +175,8 @@ data class InventoryPlantItem(
 data class InventoryCropsItem(
     val id: String = "",
     val species: String = "",
-    val scale: Double = 0.0,
+    /** Whole 50..100, see CropSize. */
+    val size: Int = com.mgafk.app.data.repository.CropSize.MIN,
     val mutations: List<String> = emptyList(),
 )
 
@@ -184,6 +196,13 @@ data class InventoryPetItem(
 data class InventoryToolItem(
     val toolId: String = "",
     val quantity: Int = 0,
+    /**
+     * Set only for the tools the game tracks one by one rather than as a stack, which today
+     * means a crystal shard that was picked back up. [PlaceCrystal] addresses those by id.
+     */
+    val id: String? = null,
+    /** Time left on a picked-up crystal shard; absent on a fresh one out of a stack. */
+    val remainingActiveSeconds: Int? = null,
 )
 
 @Serializable
@@ -230,10 +249,16 @@ data class GardenPlantSnapshot(
     val tileId: Int = 0,
     val slotIndex: Int = 0,
     val species: String = "",
-    val targetScale: Double = 0.0,
+    /** Whole 50..100, see CropSize. */
+    val size: Int = com.mgafk.app.data.repository.CropSize.MIN,
     val mutations: List<String> = emptyList(),
     val startTime: Long = 0,
     val endTime: Long = 0,
+    /**
+     * Preserved at the Preservation Station: the game's weather passes skip such a crop, so
+     * its mutations are locked in and can no longer change.
+     */
+    val preserved: Boolean = false,
 )
 
 /** Serializable snapshot of a shop for Session persistence */
