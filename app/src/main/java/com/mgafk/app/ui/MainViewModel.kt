@@ -1645,7 +1645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Track pet IDs before hatch to detect the new pet in InventoryChanged
-    private val preHatchPetIds = mutableMapOf<String, Set<String>>() // sessionId -> pet IDs before hatch
+    // ── Hatch tracking ────────────────────────────────────────────────────
     private val pendingHatchJobs = mutableMapOf<String, Job>()
 
     /** Hatch a mature egg, optimistically remove it from garden eggs. */
@@ -2391,12 +2391,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingCleanseJobs.remove(key)?.cancel()
                 }
 
-                // Detect newly hatched pet
-                val previousPetIds = preHatchPetIds.remove(sessionId)
+                // Detect newly hatched pet — queue-based (BLP safe, no false positives on swap)
                 val allNewPets = pets + hutchPets
-                val hatchedPet = if (previousPetIds != null) {
-                    allNewPets.firstOrNull { it.id !in previousPetIds }
-                } else null
+                val queue = pendingHatches[sessionId]
+                val detectedHatches = mutableListOf<Pair<String, InventoryPetItem>>()
+                if (queue != null && queue.isNotEmpty()) {
+                    val seen = mutableSetOf<String>()
+                    while (queue.isNotEmpty()) {
+                        val (pendEggId, petsBefore) = queue.removeFirst()
+                        val newPet = allNewPets.firstOrNull { it.id !in petsBefore && it.id !in seen }
+                        if (newPet != null) { detectedHatches.add(pendEggId to newPet); seen.add(newPet.id) }
+                    }
+                    if (queue.isEmpty()) pendingHatches.remove(sessionId)
+                }
+                preHatchPetIds.remove(sessionId)
+                val hatchedPet = detectedHatches.firstOrNull()?.second
 
                 AppLog.d(TAG, "[Storage] availableStorages=$availableStorages hutch=$hutchCapacitySlots silo=$siloCapacitySlots decorShed=$decorShedCapacitySlots toolShack=$toolShackCapacitySlots")
 
@@ -2420,6 +2429,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 scheduleTroughAlertCheck(sessionId)
                 runAutoStock(sessionId, seeds, decors, tools, siloSeeds, shedDecors, shackTools, availableStorages)
+
+                // Auto grow eggs
+                val freeTilesNow = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
+                runAutoGrowEggs(sessionId, eggs, freeTilesNow)
+
+                // BLP counter update — queue-based, safe from swap/team changes
+                if (detectedHatches.isNotEmpty()) {
+                    val updatedBLP = _state.value.blpCounters.toMutableMap()
+                    detectedHatches.forEach { (eggId, pet) ->
+                        if (eggId.isBlank()) return@forEach
+                        val isRainbow = pet.mutations.any { it.lowercase().contains("rainbow") }
+                        val isGold = pet.mutations.any { it.lowercase().let { m -> m == "gold" || m == "golden" } }
+                        updatedBLP[eggId] = (updatedBLP[eggId] ?: BLPCounter()).onHatch(pet.petSpecies, isRainbow, isGold)
+                    }
+                    val newMap = updatedBLP.toMap()
+                    _state.update { it.copy(blpCounters = newMap) }
+                    viewModelScope.launch { repo.saveBlpCounters(newMap) }
+                }
             }
             is ClientEvent.EggsChanged -> {
                 val newEggs = event.eggs.map { tile ->
@@ -2440,6 +2467,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val freeTiles = clients[sessionId]?.let { computeFreePlantTileCount(it) } ?: 0
                 updateSession(sessionId) { it.copy(gardenEggs = newEggs, freePlantTiles = freeTiles) }
+                runAutoHatchEggs(sessionId, newEggs)
             }
             is ClientEvent.ShopsChanged -> {
                 val previousShops = _state.value.sessions.find { it.id == sessionId }?.shops.orEmpty()

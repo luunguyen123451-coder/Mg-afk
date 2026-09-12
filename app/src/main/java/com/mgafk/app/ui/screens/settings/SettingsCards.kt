@@ -58,6 +58,7 @@ import com.mgafk.app.data.repository.MgApi
 import com.mgafk.app.ui.components.SpriteImage
 import com.mgafk.app.ui.theme.StatusError
 import com.mgafk.app.ui.theme.SurfaceDark
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
