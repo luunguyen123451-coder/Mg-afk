@@ -39,7 +39,7 @@ object TeamTriggerManager {
         val candidates = mutableListOf<Candidate>()
 
         for (team in triggered) {
-            for (trigger in team.triggers.sortedByDescending { it.priority }) {
+            for (trigger in team.triggers.sortedByDescending { t -> t.priority }) {
                 val matches = checkTrigger(trigger, ctx, team)
                 if (matches) {
                     // score = priority * 10 + type base score
@@ -49,6 +49,7 @@ object TeamTriggerManager {
                         TriggerType.GARDEN_MUTATION -> 3
                         TriggerType.HUNGER          -> 2
                         TriggerType.DEFAULT         -> 0
+                        else                        -> 0
                     }
                     val score = trigger.priority * 10 + typeBase
                     candidates.add(Candidate(team, score))
@@ -87,7 +88,7 @@ object TeamTriggerManager {
             val plants = filterBySpecies(ctx.garden, trigger.growthSpeciesFilter)
             if (plants.isEmpty()) false
             else {
-                val notFull = plants.count { it.targetScale < 1.0 }
+                val notFull = plants.count { it.size < com.mgafk.app.data.repository.CropSize.MAX }
                 val pct = notFull * 100 / plants.size
                 pct >= trigger.growthMinPercent
             }

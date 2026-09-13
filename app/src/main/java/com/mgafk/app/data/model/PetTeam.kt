@@ -100,6 +100,7 @@ data class PetTeam(
     val name: String = "",
     val members: List<PetTeamMember> = emptyList(),
     val emblem: PetTeamEmblem = PetTeamEmblem.Unknown,
+    val triggers: List<TeamTrigger> = emptyList(),
 ) {
     val petIds: List<String> get() = members.map { it.petId }
 

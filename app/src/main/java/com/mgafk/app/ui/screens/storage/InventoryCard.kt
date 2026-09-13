@@ -697,7 +697,7 @@ private fun ProduceTile(item: InventoryProduceItem, apiReady: Boolean, playerCou
     val entry = remember(item.species, apiReady) { MgApi.findItem(item.species) }
     val color = rarityColor(entry?.rarity)
     val maxS = entry?.maxScale ?: 1.0
-    val pct = sizePercent(item.size, maxS)
+    val pct = sizePercent(item.size.toDouble(), maxS)
     val fraction = (pct / 100.0).toFloat().coerceIn(0f, 1f)
     val name = entry?.name?.removeSuffix(" Seed") ?: item.species
     val price = remember(item.species, item.size, item.mutations, apiReady, playerCount) {
@@ -1134,8 +1134,8 @@ private fun PlantSlotRow(
 ) {
     val sizePercent = sizePercent(slot.size.toDouble(), maxScale)
     val fraction = (sizePercent / 100.0).toFloat().coerceIn(0f, 1f)
-    val price = remember(slot.species, slot.size.toDouble(), slot.mutations, apiReady) {
-        PriceCalculator.calculateCropSellPrice(slot.species, slot.size.toDouble(), slot.mutations)
+    val price = remember(slot.species, slot.size, slot.mutations, apiReady) {
+        PriceCalculator.calculateCropSellPrice(slot.species, slot.size, slot.mutations)
     }
 
     Row(
@@ -2207,7 +2207,7 @@ private fun ProduceDetailDialog(
     val name = entry?.name?.removeSuffix(" Seed") ?: item.species
     val color = rarityColor(entry?.rarity)
     val maxS = entry?.maxScale ?: 1.0
-    val pct = sizePercent(item.size, maxS)
+    val pct = sizePercent(item.size.toDouble(), maxS)
     val fraction = (pct / 100.0).toFloat().coerceIn(0f, 1f)
     val price = remember(item.species, item.size, item.mutations, apiReady, playerCount) {
         PriceCalculator.calculateCropSellPrice(item.species, item.size, item.mutations, playerCount)

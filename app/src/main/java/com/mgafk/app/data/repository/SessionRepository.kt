@@ -237,11 +237,6 @@ class SessionRepository(private val context: Context) {
         if (raw.isNullOrBlank()) return emptyList()
         return try { json.decodeFromString(raw) } catch (_: Exception) { emptyList() }
     }
-    suspend fun loadWatchlist(): List<WatchlistItem> {
-        val raw = context.dataStore.data.map { it[KEY_WATCHLIST] }.first()
-        if (raw.isNullOrBlank()) return emptyList()
-        return try { json.decodeFromString(raw) } catch (_: Exception) { emptyList() }
-    }
     suspend fun saveWatchlist(items: List<WatchlistItem>) {
         context.dataStore.edit { prefs ->
             prefs[KEY_WATCHLIST] = json.encodeToString(items)
@@ -251,19 +246,7 @@ class SessionRepository(private val context: Context) {
 
     suspend fun loadBlpCounters(): Map<String, BLPCounter> {
         val raw = context.dataStore.data.map { it[KEY_BLP] }.first() ?: return emptyMap()
-        return try {
-            json.decodeFromString(raw)
-        } catch (e: Exception) {
-            emptyMap()
-        }
-    }
-    suspend fun loadBlpCounters(): Map<String, BLPCounter> {
-        val raw = context.dataStore.data.map { it[KEY_BLP] }.first() ?: return emptyMap()
-        return try {
-            json.decodeFromString(raw)
-        } catch (e: Exception) {
-            emptyMap()
-        }
+        return try { json.decodeFromString(raw) } catch (e: Exception) { emptyMap() }
     }
     suspend fun saveBlpCounters(counters: Map<String, BLPCounter>) {
         context.dataStore.edit { prefs ->
