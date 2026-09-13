@@ -225,6 +225,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showEggTip = !eggTipDismissed,
                 showPlantTip = !plantTipDismissed,
                 settings = settings,
+                watchlist = watchlist,
+                blpCounters = blpCounters,
             )
             // Collect service logs (wake lock events etc.)
             launch {
