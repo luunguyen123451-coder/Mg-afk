@@ -13,8 +13,8 @@ android {
         applicationId = "com.mgafk.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 53
-        versionName = "2.4.8"
+        versionCode = 68
+        versionName = "2.4.23"
     }
 
     buildTypes {
@@ -46,22 +46,6 @@ android {
         // jars on Windows and stalls builds. We don't gate releases on lint here.
         checkReleaseBuilds = false
         abortOnError = false
-    }
-
-    packaging {
-        resources {
-            // Ktor/Netty ships multiple jars that each contain META-INF/INDEX.LIST,
-            // io.netty.versions.properties, etc. Pick the first one found.
-            pickFirsts += listOf(
-                "META-INF/INDEX.LIST",
-                "META-INF/io.netty.versions.properties",
-                "META-INF/DEPENDENCIES",
-                "META-INF/LICENSE",
-                "META-INF/LICENSE.txt",
-                "META-INF/NOTICE",
-                "META-INF/NOTICE.txt",
-            )
-        }
     }
 }
 
@@ -102,14 +86,6 @@ dependencies {
 
     // WorkManager (periodic watchdog that re-arms the AFK service)
     implementation("androidx.work:work-runtime-ktx:2.10.0")
-
-    // Ktor (embedded HTTP/WebSocket server for RemoteControlServer)
-    val ktorVersion = "2.3.12"
-    implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-netty:$ktorVersion")
-    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
-    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
     testImplementation("junit:junit:4.13.2")
 }
