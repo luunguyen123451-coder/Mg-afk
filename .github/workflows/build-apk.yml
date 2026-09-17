@@ -21,11 +21,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-
       - name: Accept Android SDK Licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
 
@@ -56,9 +51,3 @@ jobs:
           name: ${{ steps.version.outputs.name }}
           files: app/build/outputs/apk/debug/app-debug.apk
           body: "Auto build from commit ${{ github.sha }}"
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
