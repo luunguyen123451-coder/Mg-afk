@@ -56,3 +56,9 @@ jobs:
           name: ${{ steps.version.outputs.name }}
           files: app/build/outputs/apk/debug/app-debug.apk
           body: "Auto build from commit ${{ github.sha }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
