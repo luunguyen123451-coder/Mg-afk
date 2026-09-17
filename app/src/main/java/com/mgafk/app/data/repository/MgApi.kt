@@ -132,10 +132,6 @@ object MgApi {
         private set
 
     /**
-     * Preload all categories in parallel. Call once at app startup.
-     * After this completes, all get*() calls return instantly from cache.
-     */
-    /**
      * The Weather Station forecast: what is running now and what comes next.
      *
      * Not cached and not part of [preloadAll]: it is live data with second-level countdowns, so
@@ -151,14 +147,17 @@ object MgApi {
         // scans forward as far as it needs.
         val now = System.currentTimeMillis()
         val missing = buildList {
-            if (!dashboard.hasHydro(now)) add(WeatherEvent.HYDRO_IDS)
-            if (!dashboard.hasLunar(now)) add(WeatherEvent.LUNAR_IDS)
+            if (!dashboard.hasHydro(now)) add(WeatherEvent.GROUP_HYDRO)
+            if (!dashboard.hasLunar(now)) add(WeatherEvent.GROUP_LUNAR)
         }
         if (missing.isEmpty()) return@withContext dashboard
 
-        val extra = missing.flatMap { ids -> fetchNextWeather(ids) }
-        dashboard.copy(upcoming = (dashboard.upcoming + extra).distinctBy { it.startsAtMs to it.id }
-            .sortedBy { it.startsAtMs })
+        val extra: List<WeatherEvent> = fetchNextWeather(missing)
+        val combined = (dashboard.upcoming + extra)
+            .distinctBy { item: WeatherEvent -> item.startsAtMs to item.id }
+            .sortedBy { item: WeatherEvent -> item.startsAtMs }
+
+        dashboard.copy(upcoming = combined)
     }
 
     /**
