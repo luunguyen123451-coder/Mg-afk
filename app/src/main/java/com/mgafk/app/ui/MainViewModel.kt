@@ -2143,6 +2143,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val alerts = _state.value.alerts
                 alertNotifier.checkWeather(event.weather, previousWeather, alerts)
                 alertNotifier.checkPetHunger(sessionId, newPets, alerts)
+
+                // Auto-use Hunger Potion khi pet xuống dưới ngưỡng
+                val threshold = _state.value.settings.autoPotionThreshold
+                if (threshold > 0.0) {
+                    val session = _state.value.sessions.find { it.id == sessionId }
+                    val hasPotions = session?.let {
+                        potionCountIn(it.inventory.tools) > 0 || potionCountIn(it.toolShack) > 0
+                    } ?: false
+                    if (hasPotions) {
+                        newPets
+                            .filter { it.hunger / 10000.0 < threshold }
+                            .forEach { pet -> useReplenishPotionOnPet(sessionId, pet.id) }
+                    }
+                }
             }
             is ClientEvent.PetTeamsChanged -> {
                 updateSession(sessionId) { it.copy(petTeams = event.teams) }
