@@ -105,6 +105,9 @@ data class AppSettings(
     // Auto-hatch eggs: tự động hatch tất cả trứng đã đủ thời gian
     val autoHatchEggs: Boolean = false,
 
+    // Auto-use Hunger Potion: tự động dùng khi pet active xuống dưới ngưỡng này (0 = tắt)
+    val autoPotionThreshold: Double = 0.0,
+
     // Play in game - inject the Gemini userscript into the WebView
     val injectGeminiMod: Boolean = true,
 

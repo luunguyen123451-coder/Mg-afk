@@ -679,6 +679,53 @@ private fun GameplayCard(settings: AppSettings, onUpdate: (AppSettings) -> Unit)
             checked = settings.instantHatch,
             onCheckedChange = { onUpdate(settings.copy(instantHatch = it)) },
         )
+
+        // Auto Hunger Potion
+        val thresholdOptions = listOf(0.0, 0.05, 0.10, 0.15, 0.20, 0.25)
+        val currentIdx = thresholdOptions.indexOfFirst { it == settings.autoPotionThreshold }.takeIf { it >= 0 } ?: 0
+
+        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+        Text(
+            "Auto Hunger Potion",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextPrimary,
+        )
+        Text(
+            if (settings.autoPotionThreshold <= 0.0)
+                "Tắt — không tự dùng potion."
+            else
+                "Tự dùng Hunger Potion khi pet active xuống dưới ${(settings.autoPotionThreshold * 100).toInt()}% đói.",
+            fontSize = 11.sp,
+            color = TextMuted,
+            lineHeight = 15.sp,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+        )
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            thresholdOptions.forEach { opt ->
+                val selected = settings.autoPotionThreshold == opt
+                val label = if (opt <= 0.0) "Tắt" else "${(opt * 100).toInt()}%"
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) Accent else SurfaceDark)
+                        .border(1.dp, if (selected) Accent else SurfaceBorder, RoundedCornerShape(8.dp))
+                        .clickable { onUpdate(settings.copy(autoPotionThreshold = opt)) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        label,
+                        fontSize = 12.sp,
+                        color = if (selected) Color.White else TextPrimary,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
     }
 }
 
