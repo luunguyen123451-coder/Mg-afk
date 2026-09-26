@@ -13,40 +13,13 @@ import kotlinx.serialization.json.longOrNull
  */
 object WeatherStationParser {
 
-    fun parse(payload: JsonObject): WeatherForecast {
-        val nowEvent = (payload["now"] as? JsonObject)?.let { parseEvent(it) }
-        
-        val upcomingList = (payload["next"] as? JsonArray ?: payload["upcoming"] as? JsonArray)
-            ?.mapNotNull { element -> 
-                val obj = element as? JsonObject ?: return@mapNotNull null
-                parseEvent(obj)
-            }
-            ?.sortedBy { it.startsAtMs }
-            .orEmpty()
+    private fun JsonObject.string(key: String): String? =
+        this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
 
-        return WeatherForecast(
-            now = nowEvent,
-            upcoming = upcomingList
-        )
-    }
-
-    /**
-     * The events of a `/weather-station/next` answer.
-     */
-    fun parseEvents(payload: JsonObject): List<WeatherEvent> {
-        val array = (payload["events"] as? JsonArray) 
-            ?: (payload["next"] as? JsonArray)
-            ?: (payload["upcoming"] as? JsonArray)
-            ?: return emptyList()
-
-        return array.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            parseEvent(obj)
-        }.sortedBy { it.startsAtMs }
-    }
+    private fun JsonObject.long(key: String): Long? = this[key]?.jsonPrimitive?.longOrNull
 
     /** Null for an entry missing the timestamps the cards count down to. */
-    private fun parseEvent(obj: JsonObject): WeatherEvent? {
+    fun parseEvent(obj: JsonObject): WeatherEvent? {
         val id = obj.string("id") ?: obj.string("weather") ?: return null
 
         val startsAt = obj.long("started_at") 
@@ -70,8 +43,34 @@ object WeatherStationParser {
         )
     }
 
-    private fun JsonObject.string(key: String): String? =
-        this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
+    fun parse(payload: JsonObject): WeatherForecast {
+        val nowObj = payload["now"] as? JsonObject
+        val nowEvent: WeatherEvent? = if (nowObj != null) parseEvent(nowObj) else null
+        
+        val rawArray = (payload["next"] as? JsonArray) ?: (payload["upcoming"] as? JsonArray)
+        val upcomingList: List<WeatherEvent> = rawArray?.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            parseEvent(obj)
+        }?.sortedBy { event -> event.startsAtMs }.orEmpty()
 
-    private fun JsonObject.long(key: String): Long? = this[key]?.jsonPrimitive?.longOrNull
+        return WeatherForecast(
+            now = nowEvent,
+            upcoming = upcomingList
+        )
+    }
+
+    /**
+     * The events of a `/weather-station/next` answer.
+     */
+    fun parseEvents(payload: JsonObject): List<WeatherEvent> {
+        val rawArray = (payload["events"] as? JsonArray) 
+            ?: (payload["next"] as? JsonArray)
+            ?: (payload["upcoming"] as? JsonArray)
+            ?: return emptyList()
+
+        return rawArray.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            parseEvent(obj)
+        }.sortedBy { event -> event.startsAtMs }
+    }
 }
