@@ -10,47 +10,61 @@ import kotlinx.serialization.json.longOrNull
 
 /**
  * Turns the `/weather-station` payload into the three cards' data.
- *
- * Only the absolute timestamps are kept: the payload's own `starts_in_ms` / `ends_in_ms` are
- * measured at the server's `generated_at` and are already stale on arrival, so the countdowns
- * are recomputed locally (see [WeatherEvent.startsInMs]).
  */
 object WeatherStationParser {
 
-    fun parse(payload: JsonObject): WeatherForecast = WeatherForecast(
-        now = (payload["now"] as? JsonObject)?.let(::event),
-        upcoming = (payload["next"] as? JsonArray)
-            ?.mapNotNull { element -> (element as? JsonObject)?.let(::event) }
-            ?.sortedBy { it.startsAtMs }
-            .orEmpty(),
-    )
-
-    /**
-     * The events of a `/weather-station/next` answer, which carries them under `events` in the
-     * same shape the dashboard uses.
-     *
-     * That endpoint is how the station fills a card the dashboard's five-entry list left empty:
-     * asked for the lunar ids, it scans forward until it finds one.
-     */
-    fun parseEvents(payload: JsonObject): List<WeatherEvent> =
-        (payload["events"] as? JsonArray)
-            ?.mapNotNull { element -> (element as? JsonObject)?.let(::event) }
+    fun parse(payload: JsonObject): WeatherForecast {
+        val nowEvent = (payload["now"] as? JsonObject)?.let { parseEvent(it) }
+        
+        val upcomingList = (payload["next"] as? JsonArray ?: payload["upcoming"] as? JsonArray)
+            ?.mapNotNull { element -> 
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                parseEvent(obj)
+            }
             ?.sortedBy { it.startsAtMs }
             .orEmpty()
 
+        return WeatherForecast(
+            now = nowEvent,
+            upcoming = upcomingList
+        )
+    }
+
+    /**
+     * The events of a `/weather-station/next` answer.
+     */
+    fun parseEvents(payload: JsonObject): List<WeatherEvent> {
+        val array = (payload["events"] as? JsonArray) 
+            ?: (payload["next"] as? JsonArray)
+            ?: (payload["upcoming"] as? JsonArray)
+            ?: return emptyList()
+
+        return array.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            parseEvent(obj)
+        }.sortedBy { it.startsAtMs }
+    }
+
     /** Null for an entry missing the timestamps the cards count down to. */
-    private fun event(obj: JsonObject): WeatherEvent? {
-        val id = obj.string("id") ?: return null
-        val startsAt = obj.long("started_at") ?: return null
-        val endsAt = obj.long("ended_at") ?: return null
+    private fun parseEvent(obj: JsonObject): WeatherEvent? {
+        val id = obj.string("id") ?: obj.string("weather") ?: return null
+        val name = obj.string("weather") ?: obj.string("name") ?: id
+
+        val startsAt = obj.long("started_at") 
+            ?: obj.long("startsAtMs") 
+            ?: obj.long("startsAt") 
+            ?: return null
+
+        val endsAt = obj.long("ended_at") 
+            ?: obj.long("endsAtMs") 
+            ?: obj.long("endsAt") 
+            ?: return null
+
         return WeatherEvent(
             id = id,
-            label = obj.string("weather") ?: id,
-            group = obj.string("group"),
-            mutation = obj.string("mutation"),
-            spriteUrl = obj.string("sprite"),
+            name = name,
             startsAtMs = startsAt,
-            endsAtMs = endsAt,
+            endsAtMs = endsAt
         )
     }
 
