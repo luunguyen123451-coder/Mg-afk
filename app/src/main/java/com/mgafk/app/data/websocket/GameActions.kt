@@ -160,6 +160,11 @@ class GameActions(
      * data, NOT from the shop key. The "tool" shop now mixes Tool entries
      * (WateringCan, Shovel) with Decor entries (SeedSilo, FeedingTrough),
      * so we can't infer itemType from the shop name anymore.
+     *
+     * Since bundle 1292 the server rejects a PurchaseShopItem without
+     * `viewMode` ("list" or "grid", the shop's display setting in the web
+     * client) as invalid_message. The app has no shop view, so it always
+     * sends "list", which the server accepts.
      */
     fun purchaseShopItem(shop: String, itemId: String) {
         val itemType = when {
@@ -178,6 +183,7 @@ class GameActions(
         }
         val params = buildJsonObject {
             put("shop", JsonPrimitive(shop))
+            put("viewMode", JsonPrimitive("list"))
             put("item", buildJsonObject {
                 put("itemType", JsonPrimitive(itemType))
                 put(idField, JsonPrimitive(itemId))
