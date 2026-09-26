@@ -2153,7 +2153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } ?: false
                     if (hasPotions) {
                         newPets
-                            .filter { it.hunger / 10000.0 < threshold }
+                            .filter { it.hunger / (com.mgafk.app.data.websocket.Constants.maxHungerFor(it.species) ?: 1000).toDouble() < threshold }
                             .forEach { pet -> useReplenishPotionOnPet(sessionId, pet.id) }
                     }
                 }
