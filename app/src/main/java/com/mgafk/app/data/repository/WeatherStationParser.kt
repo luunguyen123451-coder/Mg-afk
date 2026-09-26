@@ -48,7 +48,6 @@ object WeatherStationParser {
     /** Null for an entry missing the timestamps the cards count down to. */
     private fun parseEvent(obj: JsonObject): WeatherEvent? {
         val id = obj.string("id") ?: obj.string("weather") ?: return null
-        val name = obj.string("weather") ?: obj.string("name") ?: id
 
         val startsAt = obj.long("started_at") 
             ?: obj.long("startsAtMs") 
@@ -62,7 +61,10 @@ object WeatherStationParser {
 
         return WeatherEvent(
             id = id,
-            name = name,
+            label = obj.string("weather") ?: obj.string("label") ?: id,
+            group = obj.string("group"),
+            mutation = obj.string("mutation"),
+            spriteUrl = obj.string("sprite") ?: obj.string("spriteUrl"),
             startsAtMs = startsAt,
             endsAtMs = endsAt
         )
