@@ -41,6 +41,14 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/io.netty.versions.properties"
+        }
+    }
+
     lint {
         // Skip the release-time lint pass: lintVitalAnalyzeRelease often locks
         // jars on Windows and stalls builds. We don't gate releases on lint here.
@@ -62,6 +70,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Ktor Server (Bổ sung thư viện cho RemoteControlServer)
+    val ktorVersion = "2.3.12"
+    implementation("io.ktor:ktor-server-core:$ktorVersion")
+    implementation("io.ktor:ktor-server-netty:$ktorVersion")
+    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
 
     // OkHttp (WebSocket)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
