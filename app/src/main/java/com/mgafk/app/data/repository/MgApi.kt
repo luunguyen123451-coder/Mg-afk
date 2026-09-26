@@ -1,6 +1,5 @@
 package com.mgafk.app.data.repository
 
-import com.mgafk.app.data.AppJson
 import com.mgafk.app.data.AppLog
 import com.mgafk.app.data.model.WeatherEvent
 import com.mgafk.app.data.model.WeatherForecast
@@ -8,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import com.mgafk.app.data.AppJson
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -56,40 +56,62 @@ object MgApi {
         val rarity: String? = null,
         val cropSprite: String? = null,
         val maxScale: Double? = null,
+        /** Crops only: what a size-100 crop multiplies base value and weight by (V30+).
+         * Pets keep [maxScale]; the two are not interchangeable. */
         val maxSizeMultiplier: Double? = null,
         val baseSellPrice: Double? = null,
         val hoursToMature: Double? = null,
         val maturitySellPrice: Double? = null,
         val color: String? = null,
         val diet: List<String> = emptyList(),
+        // Plant-only visual data (from `/data/plants`)
         val plantSprite: String? = null,
         val plantSlotOffsets: List<SlotOffset> = emptyList(),
+        // Patch-style plants (e.g. Clover): explicit max grow-slot count, separate from
+        // plantSlotOffsets - these have no slotOffsets at all (a single PlantSeed fills a
+        // random subset of the capacity, between slotCountMin/slotCountMax).
         val plantSlotCapacity: Int? = null,
         val plantBaseTileScale: Double? = null,
         val plantTileTransformOrigin: String? = null,
         val cropBaseTileScale: Double? = null,
         val cropTransformOrigin: String? = null,
+        // Egg-only: weight of each pet species that can hatch from this egg
         val faunaSpawnWeights: Map<String, Double> = emptyMap(),
+        // Pet-only: also the pet's max hunger value (hunger drops from this
+        // down to 0). Source-of-truth for the hunger bar % display.
         val coinsToFullyReplenishHunger: Int? = null,
+        // Decor-only (PetHutch, SeedSilo, DecorShed, ToolShack): capacity upgrade tiers
         val upgrades: List<DecorUpgrade> = emptyList(),
+        // Shop buyability - owning >= 1 of a one-time-purchase item blocks further buys.
         val isOneTimePurchase: Boolean = false,
+        // Shop buyability - null means no per-item stack cap.
         val maxInventoryQuantity: Int? = null,
+        // Which shops the item is eligible to spawn in. Capitalized values
+        // ("Seed", "Dawn", "Egg"...). Empty when the API doesn't expose it
+        // (older entries) - treat as the default shop for the category.
         val eligibleShops: List<String> = emptyList(),
     ) {
         val rarityIndex: Int get() = RARITY_ORDER.indexOf(rarity).let { if (it < 0) RARITY_ORDER.size else it }
 
+        /** Max simultaneous grow slots for this plant: explicit [plantSlotCapacity] (patch-style
+         * plants like Clover) if present, else the length of [plantSlotOffsets] (tree-style
+         * multi-crop plants like FavaBean), else 1 for an ordinary single-harvest plant. */
         val plantMaxGrowSlots: Int
             get() = plantSlotCapacity ?: plantSlotOffsets.size.takeIf { it > 0 } ?: 1
     }
 
+    /** Normalized slot offset from the plant data (x/y in tile units, rotation in degrees). */
     data class SlotOffset(val x: Double, val y: Double, val rotation: Double)
 
+    /** Decor storage upgrade tier (PetHutch, SeedSilo, DecorShed): one step in the
+     * capacity chain, e.g. 10 -> 15 slots for a dust cost. */
     data class DecorUpgrade(
         val fromCapacitySlots: Int,
         val toCapacitySlots: Int,
         val dustCost: Long,
     )
 
+    /** Atlas metadata for a sprite: source canvas size and anchor point (fractions 0..1). */
     data class SpriteMetadata(
         val sourceWidth: Int,
         val sourceHeight: Int,
@@ -109,29 +131,50 @@ object MgApi {
     var isReady = false
         private set
 
+    /**
+     * The Weather Station forecast: what is running now and what comes next.
+     *
+     * Not cached and not part of [preloadAll]: it is live data with second-level countdowns, so
+     * the caller refreshes it on its own schedule. Returns null on any failure, since a missing
+     * forecast just hides the card rather than breaking anything.
+     */
     suspend fun fetchWeatherStation(): WeatherForecast? = withContext(Dispatchers.IO) {
-        val dashboard = getJson("/weather-station")?.let { WeatherStationParser.parse(it) }
+        val dashboard = getJson("/weather-station")?.let(WeatherStationParser::parse)
             ?: return@withContext null
 
+        // The dashboard only lists the next five events, and both a Hydro and a Lunar card have
+        // to be filled. Whichever kind that list happens to miss is asked for by name, which
+        // scans forward as far as it needs.
         val now = System.currentTimeMillis()
         val missing = buildList {
-            if (!dashboard.hasHydro(now)) add(WeatherEvent.HYDRO_IDS)
-            if (!dashboard.hasLunar(now)) add(WeatherEvent.LUNAR_IDS)
+            if (!dashboard.hasHydro(now)) add(WeatherEvent.GROUP_HYDRO)
+            if (!dashboard.hasLunar(now)) add(WeatherEvent.GROUP_LUNAR)
         }
         if (missing.isEmpty()) return@withContext dashboard
 
-        val extra = missing.flatMap { ids -> fetchNextWeather(ids) }
-        dashboard.copy(upcoming = (dashboard.upcoming + extra).distinctBy { it.startsAtMs to it.id }
-            .sortedBy { it.startsAtMs })
+        val extra: List<WeatherEvent> = fetchNextWeather(missing)
+        val combined = (dashboard.upcoming + extra)
+            .distinctBy { item: WeatherEvent -> item.startsAtMs to item.id }
+            .sortedBy { item: WeatherEvent -> item.startsAtMs }
+
+        dashboard.copy(upcoming = combined)
     }
 
+    /**
+     * The next events among [ids], however far ahead they are. Empty on any failure.
+     *
+     * Two are asked for rather than one: the endpoint counts from now and so can answer with the
+     * event that is running at this very moment, which is the Now card's business and gets
+     * filtered out of the upcoming list. The second entry is what guarantees a future one.
+     */
     private fun fetchNextWeather(ids: List<String>): List<WeatherEvent> {
         val query = ids.joinToString(",")
         return getJson("/weather-station/next?ids=$query&count=2")
-            ?.let { WeatherStationParser.parseEvents(it) }
+            ?.let(WeatherStationParser::parseEvents)
             .orEmpty()
     }
 
+    /** One GET returning a parsed object, or null on any failure. */
     private fun getJson(path: String): JsonObject? = try {
         val request = Request.Builder()
             .url("$BASE_URL$path")
@@ -162,6 +205,7 @@ object MgApi {
                         if (cat == "decors") logStorageUpgradeCounts(data)
                     } catch (e: Exception) {
                         AppLog.e(TAG, "Failed to load $cat: ${e.message}")
+                        // Retry once
                         try {
                             val data = fetchCategory(cat)
                             cache[cat] = data
@@ -173,6 +217,7 @@ object MgApi {
                     }
                 }
             }
+            // Fetch mutations separately (different structure)
             val mutJob = async(Dispatchers.IO) {
                 try {
                     val data = fetchMutations()
@@ -189,6 +234,8 @@ object MgApi {
                     }
                 }
             }
+            // Fetch plant sprite metadata (sourceSize + anchor) for accurate crop
+            // placement in PlantCompositeSprite.
             val spriteMetaJob = async(Dispatchers.IO) {
                 try {
                     val data = fetchPlantSpriteMetadata()
@@ -206,6 +253,8 @@ object MgApi {
         }
     }
 
+    /** One-shot diagnostic: confirms the upgrade-tier chain parsed correctly for each
+     * leveled storage decor - helps spot API schema drift without guessing. */
     private fun logStorageUpgradeCounts(decors: Map<String, GameEntry>) {
         for (id in listOf("PetHutch", "SeedSilo", "DecorShed", "ToolShack")) {
             val upgrades = decors[id]?.upgrades ?: emptyList()
@@ -222,14 +271,23 @@ object MgApi {
     fun getAbilities(): Map<String, GameEntry> = cache["abilities"] ?: emptyMap()
     fun getMutations(): Map<String, MutationEntry> = mutationsCache
 
+    /** Atlas metadata for a plant sprite (keyed by filename without `.png`). */
     fun getPlantSpriteMetadata(spriteName: String): SpriteMetadata? =
         plantSpriteMetaCache[spriteName]
 
     fun spriteUrl(category: String, name: String): String =
         "$BASE_URL/assets/sprites/$category/$name.png"
 
+    /** Shortcut for UI sprites: `sprites/ui/{name}.png`. */
     fun uiSpriteUrl(name: String): String = spriteUrl("ui", name)
 
+    /** URL for a plant sprite (e.g. "Carrot", "Starweaver"). */
+    /**
+     * What a crop of [species] at [size] multiplies its base value, weight and drawn size by.
+     *
+     * 1.0 for an unknown species, so a crop the API has no data for renders at its base size
+     * instead of vanishing.
+     */
     fun cropSizeMultiplier(species: String, size: Int): Double =
         CropSize.multiplier(size, getPlants()[species]?.maxSizeMultiplier ?: 1.0)
 
@@ -240,17 +298,25 @@ object MgApi {
     val unlockSpriteUrl: String get() = uiSpriteUrl("Unlocked")
     val magicDustUrl: String get() = spriteUrl("items", "MagicDust")
 
+    /** Badge for a crop preserved at the Preservation Station. */
     val preservationSpriteUrl: String get() = uiSpriteUrl("PreservationIcon")
 
+    /** URL for a rarity tier's badge sprite (e.g. "Common", "Divine"). */
     fun raritySpriteUrl(rarity: String): String = uiSpriteUrl("Rarity$rarity")
 
     private val MUTATION_SPRITE_ALIAS = mapOf("Ambershine" to "Amberlit")
 
+    /** URL for a mutation sprite (`ui/Mutation{Name}.png`). */
     fun mutationSpriteUrl(mutation: String): String {
         val name = MUTATION_SPRITE_ALIAS[mutation] ?: mutation
         return uiSpriteUrl("Mutation$name")
     }
 
+    /**
+     * URL for a composed sprite: base sprite + mutation layers rendered server-side.
+     * `key` is the atlas key (e.g. `sprite/pet/Bunny`, `sprite/plant/MoonCelestialCrop`).
+     * Returns `null` if `mutations` is empty - callers should fall back to the plain sprite URL.
+     */
     fun composedSpriteUrl(key: String, mutations: List<String>): String? {
         if (mutations.isEmpty()) return null
         val encodedKey = URLEncoder.encode(key, "UTF-8")
@@ -258,6 +324,13 @@ object MgApi {
         return "$BASE_URL/assets/sprites/composed?key=$encodedKey&mutations=$encodedMuts"
     }
 
+    /**
+     * URL for a pet sprite. The sprite filename is read from `GameEntry.sprite`
+     * loaded from the API (e.g. `.../pets/Bunny.png` → `Bunny`), so the composed
+     * key matches what the server knows. When mutations are non-empty the composed
+     * endpoint is used, otherwise the plain sprite URL is returned.
+     * Returns `null` if the pet is not in the cache yet.
+     */
     fun petSpriteUrl(species: String, mutations: List<String> = emptyList()): String? {
         val baseUrl = getPets()[species]?.sprite ?: return null
         if (mutations.isEmpty()) return baseUrl
@@ -265,6 +338,11 @@ object MgApi {
         return composedSpriteUrl("sprite/pet/$spriteName", mutations) ?: baseUrl
     }
 
+    /**
+     * URL for a crop sprite. Reads the sprite filename from `GameEntry.cropSprite`
+     * (e.g. `.../plants/MoonCelestialCrop.png` → `MoonCelestialCrop`) so the composed
+     * key matches the atlas. Returns `null` if the plant is not in the cache yet.
+     */
     fun cropSpriteUrl(species: String, mutations: List<String> = emptyList()): String? {
         val baseUrl = getPlants()[species]?.cropSprite ?: return null
         if (mutations.isEmpty()) return baseUrl
@@ -272,19 +350,23 @@ object MgApi {
         return composedSpriteUrl("sprite/plant/$spriteName", mutations) ?: baseUrl
     }
 
+    /** Extract the sprite filename (without `.png` or query string) from a sprite URL. */
     private fun spriteNameFromUrl(url: String?): String? {
         if (url.isNullOrBlank()) return null
         val file = url.substringAfterLast('/').substringBefore('?')
         return file.removeSuffix(".png").ifBlank { null }
     }
 
+    /** Look up pet entry by species id. */
     fun findPet(speciesId: String): GameEntry? = getPets()[speciesId]
 
+    /** Look up a full GameEntry for an item/seed/tool/egg/decor id. */
     fun findItem(itemId: String): GameEntry? {
         getPlants()[itemId]?.let { return it }
         getItems()[itemId]?.let { return it }
         getEggs()[itemId]?.let { return it }
         getDecors()[itemId]?.let { return it }
+        // Case-insensitive fallback
         for (getter in listOf(::getPlants, ::getItems, ::getEggs, ::getDecors)) {
             val match = getter().entries.find { it.key.equals(itemId, ignoreCase = true) }
             if (match != null) return match.value
@@ -292,6 +374,13 @@ object MgApi {
         return null
     }
 
+    /**
+     * Which data category an item id belongs to ("plants", "items", "eggs", "decors"),
+     * or null when the id is unknown. Same lookup order and case-insensitive fallback as
+     * [findItem] - use this instead of the shop an item happens to be sold in, since the
+     * game now sells the same kinds of item across several shops (ward shards are `items`
+     * sold in the weather shops, storages are `decors` sold in the tool shop).
+     */
     fun categoryOf(itemId: String): String? {
         val categories = listOf(
             "plants" to ::getPlants,
@@ -308,16 +397,20 @@ object MgApi {
         return null
     }
 
+    /** Display name for an item id. */
     fun itemDisplayName(itemId: String): String = findItem(itemId)?.name ?: itemId
 
+    /** Display name for an ability id. */
     fun abilityDisplayName(abilityId: String): String =
         getAbilities()[abilityId]?.name ?: abilityId
 
+    /** Weather entry by API key. */
     fun weatherInfo(weatherKey: String): GameEntry? {
         getWeathers()[weatherKey]?.let { return it }
         return getWeathers().entries.find { it.key.equals(weatherKey, ignoreCase = true) }?.value
     }
 
+    /** Clear all caches (call on version change) */
     fun clearCache() {
         cache.clear()
         mutationsCache.clear()
@@ -325,45 +418,7 @@ object MgApi {
         isReady = false
     }
 
-    // ---- Internal Helper Functions ----
-
-    private fun fetchCategory(category: String): LinkedHashMap<String, GameEntry> {
-        val result = LinkedHashMap<String, GameEntry>()
-        val root = getJson("/data/$category") ?: return result
-        val dataObj = root["data"] as? JsonObject ?: root
-        for ((id, element) in dataObj) {
-            val obj = element as? JsonObject ?: continue
-            val entry = GameEntry(
-                id = id,
-                name = (obj["name"] as? JsonPrimitive)?.contentOrNull ?: id,
-                sprite = (obj["sprite"] as? JsonPrimitive)?.contentOrNull,
-                rarity = (obj["rarity"] as? JsonPrimitive)?.contentOrNull,
-                cropSprite = (obj["cropSprite"] as? JsonPrimitive)?.contentOrNull,
-                maxScale = (obj["maxScale"] as? JsonPrimitive)?.doubleOrNull,
-                maxSizeMultiplier = (obj["maxSizeMultiplier"] as? JsonPrimitive)?.doubleOrNull,
-                baseSellPrice = (obj["baseSellPrice"] as? JsonPrimitive)?.doubleOrNull,
-                hoursToMature = (obj["hoursToMature"] as? JsonPrimitive)?.doubleOrNull,
-                maturitySellPrice = (obj["maturitySellPrice"] as? JsonPrimitive)?.doubleOrNull,
-                color = (obj["color"] as? JsonPrimitive)?.contentOrNull,
-            )
-            result[id] = entry
-        }
-        return result
-    }
-
-    private fun fetchMutations(): Map<String, MutationEntry> {
-        val result = mutableMapOf<String, MutationEntry>()
-        val root = getJson("/data/mutations") ?: return result
-        val dataObj = root["data"] as? JsonObject ?: root
-        for ((id, element) in dataObj) {
-            val obj = element as? JsonObject ?: continue
-            val name = (obj["name"] as? JsonPrimitive)?.contentOrNull ?: id
-            val multiplier = (obj["coinMultiplier"] as? JsonPrimitive)?.doubleOrNull ?: 1.0
-            val sprite = (obj["sprite"] as? JsonPrimitive)?.contentOrNull
-            result[id] = MutationEntry(name, multiplier, sprite)
-        }
-        return result
-    }
+    // ---- Internal ----
 
     private fun fetchPlantSpriteMetadata(): Map<String, SpriteMetadata> {
         val request = Request.Builder()
@@ -385,28 +440,143 @@ object MgApi {
             val catObj = catElement as? JsonObject ?: continue
             val items = catObj["items"] as? JsonArray ?: continue
             for (itemElement in items) {
-                val itemObj = itemElement as? JsonObject ?: continue
-                val name = (itemObj["name"] as? JsonPrimitive)?.contentOrNull ?: continue
-                val sourceSize = itemObj["sourceSize"] as? JsonObject
-                val anchor = itemObj["anchor"] as? JsonObject
-                val w = (sourceSize?.get("w") as? JsonPrimitive)?.intOrNull ?: 0
-                val h = (sourceSize?.get("h") as? JsonPrimitive)?.intOrNull ?: 0
-                val ax = (anchor?.get("x") as? JsonPrimitive)?.doubleOrNull ?: 0.5
-                val ay = (anchor?.get("y") as? JsonPrimitive)?.doubleOrNull ?: 0.5
+                val item = itemElement as? JsonObject ?: continue
+                val name = item["name"]?.jsonPrimitive?.contentOrNull ?: continue
+                val sourceSize = item["sourceSize"] as? JsonObject ?: continue
+                val anchor = item["anchor"] as? JsonObject ?: continue
+                val w = sourceSize["w"]?.jsonPrimitive?.intOrNull ?: continue
+                val h = sourceSize["h"]?.jsonPrimitive?.intOrNull ?: continue
+                val ax = anchor["x"]?.jsonPrimitive?.doubleOrNull ?: 0.5
+                val ay = anchor["y"]?.jsonPrimitive?.doubleOrNull ?: 0.5
                 result[name] = SpriteMetadata(w, h, ax, ay)
             }
         }
         return result
     }
-}
 
-// ---- Dummy WeatherStationParser & CropSize to avoid missing references ----
+    private fun fetchMutations(): Map<String, MutationEntry> {
+        val request = Request.Builder()
+            .url("$BASE_URL/DATA/mutations")
+            .header("Accept", "application/json")
+            .build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code} for /DATA/mutations")
+        }
+        val body = response.body?.string()
+            ?: throw Exception("Empty body for /DATA/mutations")
+        val root = json.parseToJsonElement(body) as? JsonObject
+            ?: throw Exception("Invalid JSON for /DATA/mutations")
 
-private object WeatherStationParser {
-    fun parse(json: JsonObject): WeatherForecast = WeatherForecast()
-    fun parseEvents(json: JsonObject): List<WeatherEvent> = emptyList()
-}
+        val result = mutableMapOf<String, MutationEntry>()
+        for ((id, element) in root) {
+            val obj = element as? JsonObject ?: continue
+            val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: id
+            val coinMultiplier = obj["coinMultiplier"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+            val sprite = obj["sprite"]?.jsonPrimitive?.contentOrNull
+            val entry = MutationEntry(name = name, coinMultiplier = coinMultiplier, sprite = sprite)
+            // Key by both internal id (e.g. "Ambercharged") and display name (e.g. "Amberbound")
+            result[id] = entry
+            if (name != id) result[name] = entry
+        }
+        return result
+    }
 
-private object CropSize {
-    fun multiplier(size: Int, maxMult: Double): Double = 1.0
+    private fun fetchCategory(category: String): LinkedHashMap<String, GameEntry> {
+        val request = Request.Builder()
+            .url("$BASE_URL/data/$category")
+            .header("Accept", "application/json")
+            .build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code} for /data/$category")
+        }
+        val body = response.body?.string()
+            ?: throw Exception("Empty body for /data/$category")
+        val root = json.parseToJsonElement(body) as? JsonObject
+            ?: throw Exception("Invalid JSON for /data/$category")
+
+        val result = LinkedHashMap<String, GameEntry>()
+        for ((id, element) in root) {
+            val obj = element as? JsonObject
+            if (category == "plants") {
+                // Plants have nested structure: { seed: { sprite, ... }, plant: { ... }, crop: { ... } }
+                val seedObj = obj?.get("seed") as? JsonObject
+                val plantObj = obj?.get("plant") as? JsonObject
+                val cropObj = obj?.get("crop") as? JsonObject
+                val slotOffsets = (plantObj?.get("slotOffsets") as? JsonArray)
+                    ?.mapNotNull { el ->
+                        val o = el as? JsonObject ?: return@mapNotNull null
+                        SlotOffset(
+                            x = o["x"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                            y = o["y"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                            rotation = o["rotation"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        )
+                    } ?: emptyList()
+                val plantEligibleShops = (seedObj?.get("eligibleShops") as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    ?: emptyList()
+                result[id] = GameEntry(
+                    id = id,
+                    name = seedObj?.get("name")?.jsonPrimitive?.contentOrNull
+                        ?: plantObj?.get("name")?.jsonPrimitive?.contentOrNull
+                        ?: id,
+                    sprite = seedObj?.get("sprite")?.jsonPrimitive?.contentOrNull,
+                    rarity = seedObj?.get("rarity")?.jsonPrimitive?.contentOrNull,
+                    cropSprite = cropObj?.get("sprite")?.jsonPrimitive?.contentOrNull,
+                    maxSizeMultiplier = cropObj?.get("maxSizeMultiplier")?.jsonPrimitive?.doubleOrNull,
+                    baseSellPrice = cropObj?.get("baseSellPrice")?.jsonPrimitive?.doubleOrNull,
+                    plantSprite = plantObj?.get("sprite")?.jsonPrimitive?.contentOrNull,
+                    plantSlotOffsets = slotOffsets,
+                    plantSlotCapacity = plantObj?.get("slotCapacity")?.jsonPrimitive?.intOrNull,
+                    plantBaseTileScale = plantObj?.get("baseTileScale")?.jsonPrimitive?.doubleOrNull,
+                    plantTileTransformOrigin = plantObj?.get("tileTransformOrigin")?.jsonPrimitive?.contentOrNull,
+                    cropBaseTileScale = cropObj?.get("baseTileScale")?.jsonPrimitive?.doubleOrNull,
+                    cropTransformOrigin = cropObj?.get("transformOrigin")?.jsonPrimitive?.contentOrNull,
+                    eligibleShops = plantEligibleShops,
+                )
+            } else {
+                val dietArray = (obj?.get("diet") as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    ?: emptyList()
+                val faunaWeights = if (category == "eggs") {
+                    (obj?.get("faunaSpawnWeights") as? JsonObject)
+                        ?.mapValues { (it.value as? JsonPrimitive)?.doubleOrNull ?: 0.0 }
+                        ?: emptyMap()
+                } else emptyMap()
+                val upgrades = if (category == "decors") {
+                    (obj?.get("upgrades") as? JsonArray)
+                        ?.mapNotNull { el ->
+                            val o = el as? JsonObject ?: return@mapNotNull null
+                            val from = o["fromCapacitySlots"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                            val to = o["toCapacitySlots"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                            val cost = (o["cost"] as? JsonObject)
+                                ?.get("dustQuantity")?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L
+                            DecorUpgrade(from, to, cost)
+                        }?.sortedBy { it.fromCapacitySlots } ?: emptyList()
+                } else emptyList()
+                val eligibleShops = (obj?.get("eligibleShops") as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    ?: emptyList()
+                result[id] = GameEntry(
+                    id = id,
+                    name = obj?.get("name")?.jsonPrimitive?.contentOrNull ?: id,
+                    sprite = obj?.get("sprite")?.jsonPrimitive?.contentOrNull,
+                    rarity = obj?.get("rarity")?.jsonPrimitive?.contentOrNull,
+                    maxScale = obj?.get("maxScale")?.jsonPrimitive?.doubleOrNull,
+                    hoursToMature = obj?.get("hoursToMature")?.jsonPrimitive?.doubleOrNull,
+                    maturitySellPrice = obj?.get("maturitySellPrice")?.jsonPrimitive?.doubleOrNull,
+                    color = obj?.get("color")?.jsonPrimitive?.contentOrNull,
+                    diet = dietArray,
+                    faunaSpawnWeights = faunaWeights,
+                    upgrades = upgrades,
+                    isOneTimePurchase = obj?.get("isOneTimePurchase")?.jsonPrimitive?.booleanOrNull == true,
+                    maxInventoryQuantity = obj?.get("maxInventoryQuantity")?.jsonPrimitive?.intOrNull,
+                    eligibleShops = eligibleShops,
+                    coinsToFullyReplenishHunger = obj?.get("coinsToFullyReplenishHunger")?.jsonPrimitive?.intOrNull,
+                )
+            }
+        }
+        return result
+    }
 }
