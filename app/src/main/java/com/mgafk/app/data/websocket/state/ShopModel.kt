@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 /**
  * Shop model with inventory and restock timer.
@@ -81,11 +82,20 @@ data class ShopModel(
     }
 
     companion object {
-        fun fromState(type: String, data: JsonObject): ShopModel {
+        fun fromState(type: String, data: JsonObject, currentTimeMs: Long = 0L): ShopModel {
+            // The server stopped sending secondsUntilRestock and now sends deadlineMs instead
+            // (the UTC timestamp the current stock ends, 0 while closed). Derive the countdown
+            // from that when present, falling back to the old field for safety.
+            val deadlineMs = data["deadlineMs"]?.jsonPrimitive?.longOrNull
+            val secondsUntilRestock = if (deadlineMs != null && deadlineMs > 0) {
+                maxOf(0, ((deadlineMs - currentTimeMs) / 1000).toInt())
+            } else {
+                data["secondsUntilRestock"]?.jsonPrimitive?.intOrNull ?: 0
+            }
             return ShopModel(
                 type = type,
                 inventory = data["inventory"] as? JsonArray ?: JsonArray(emptyList()),
-                secondsUntilRestock = data["secondsUntilRestock"]?.jsonPrimitive?.intOrNull ?: 0,
+                secondsUntilRestock = secondsUntilRestock,
                 restockId = (data["restockId"] as? JsonPrimitive)?.contentOrNull,
             )
         }

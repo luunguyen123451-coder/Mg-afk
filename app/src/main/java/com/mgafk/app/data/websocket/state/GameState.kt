@@ -8,6 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 /**
  * Central game state manager. Maintains raw state trees and builds typed models.
@@ -210,11 +211,12 @@ class GameState {
     private fun buildShops() {
         val gameData = gameState as? JsonObject ?: return
         val shopsObj = gameData["shops"] as? JsonObject ?: return
+        val currentTimeMs = gameData["currentTime"]?.jsonPrimitive?.longOrNull ?: 0L
 
         shops.clear()
         for ((type, data) in shopsObj) {
             val shopObj = data as? JsonObject ?: continue
-            shops[type] = ShopModel.fromState(type, shopObj)
+            shops[type] = ShopModel.fromState(type, shopObj, currentTimeMs)
         }
     }
 
