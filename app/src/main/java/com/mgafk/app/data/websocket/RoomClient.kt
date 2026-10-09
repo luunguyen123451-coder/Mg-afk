@@ -401,6 +401,14 @@ class RoomClient {
             return
         }
 
+        // TEMP: dump any raw message mentioning quests, chunked for logcat's line limit.
+        if (raw.contains("quest", ignoreCase = true)) {
+            val chunkSize = 3000
+            raw.chunked(chunkSize).forEachIndexed { i, chunk ->
+                AppLog.d(TAG, "[QuestDump] part=$i/${(raw.length + chunkSize - 1) / chunkSize} $chunk")
+            }
+        }
+
         val msg: JsonObject = try {
             normalizeIncomingMessage(json.parseToJsonElement(raw).jsonObject)
         } catch (_: Exception) {
