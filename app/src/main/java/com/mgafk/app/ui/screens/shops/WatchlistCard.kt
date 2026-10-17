@@ -20,11 +20,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,7 +56,7 @@ import com.mgafk.app.ui.theme.SurfaceDark
 import com.mgafk.app.ui.theme.TextMuted
 import com.mgafk.app.ui.theme.TextPrimary
 
-private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain")
+private val WATCHLIST_SHOP_TYPES = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain", "spooky")
 
 /**
  * Card hiển thị danh sách Watchlist items.
@@ -69,28 +74,68 @@ fun WatchlistCard(
     shops: List<ShopSnapshot>,
     onAdd: (shopType: String, itemId: String) -> Unit,
     onRemove: (shopType: String, itemId: String) -> Unit,
+    onExport: () -> String = { "" },
+    onImport: (String) -> Boolean = { false },
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
 
     AppCard(
         title = "Watchlist",
         persistKey = "watchlist",
         trailing = {
-            // Add button
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(AccentDim)
-                    .clickable { showAddDialog = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add watchlist item",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(16.dp),
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Import button
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceDark)
+                        .border(1.dp, SurfaceBorder, CircleShape)
+                        .clickable { showImportDialog = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FileUpload,
+                        contentDescription = "Import watchlist",
+                        tint = TextMuted,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                // Export button
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceDark)
+                        .border(1.dp, SurfaceBorder, CircleShape)
+                        .clickable { showExportDialog = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FileDownload,
+                        contentDescription = "Export watchlist",
+                        tint = TextMuted,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                // Add button
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(AccentDim)
+                        .clickable { showAddDialog = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add watchlist item",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         },
     ) {
@@ -136,6 +181,104 @@ fun WatchlistCard(
             onDismiss = { showAddDialog = false },
         )
     }
+
+    if (showExportDialog) {
+        ExportWatchlistDialog(
+            json = onExport(),
+            onDismiss = { showExportDialog = false },
+        )
+    }
+
+    if (showImportDialog) {
+        ImportWatchlistDialog(
+            onImport = { text ->
+                val ok = onImport(text)
+                if (ok) showImportDialog = false
+                ok
+            },
+            onDismiss = { showImportDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun ExportWatchlistDialog(json: String, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export watchlist", color = TextPrimary) },
+        text = {
+            Column {
+                Text(
+                    text = "Copy this and paste it back in on a new install:",
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .border(1.dp, SurfaceBorder, RoundedCornerShape(8.dp))
+                        .background(SurfaceDark, RoundedCornerShape(8.dp))
+                        .padding(8.dp),
+                ) {
+                    Text(text = json, color = TextPrimary, fontSize = 11.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(json))
+                onDismiss()
+            }) { Text("Copy & close") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+}
+
+@Composable
+private fun ImportWatchlistDialog(onImport: (String) -> Boolean, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import watchlist", color = TextPrimary) },
+        text = {
+            Column {
+                Text(
+                    text = "Paste a watchlist export below. This replaces your current watchlist.",
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; failed = false },
+                    modifier = Modifier.fillMaxWidth().height(160.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                )
+                if (failed) {
+                    Text(
+                        text = "Could not read that - check you copied the whole export.",
+                        color = androidx.compose.ui.graphics.Color(0xFFE57373),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (!onImport(text)) failed = true
+            }) { Text("Import") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -150,6 +293,11 @@ private fun WatchlistChip(
         "egg" -> "eggs"
         "dawn" -> "plants"
         "snow" -> "plants"
+        "spooky" -> when {
+            item.itemId.lowercase().contains("egg") -> "eggs"
+            item.itemId.lowercase().let { it.contains("knife") || it.contains("lantern") } -> "items"
+            else -> "plants"
+        }
         "thunder" -> when {
             item.itemId.lowercase().contains("egg") -> "eggs"
             item.itemId.lowercase().let { it.contains("ward") || it.contains("shard") } -> "items"
@@ -334,11 +482,20 @@ private fun AddWatchlistDialog(
                 plantKeywords = listOf("clover", "delphinium", "mushroom", "violet", "rain", "cort"),
                 itemKeywords = listOf("rainward", "rain_ward", "rain ward"),
             ),
+
+            // -- SPOOKY SHOP (seasonal) --
+            // Mixes seeds, an egg, and tools/decor in one shop like the Tool shop does.
+            "spooky" to liveOrFallback(
+                type = "spooky",
+                eggKeywords = listOf("spooky", "ghost"),
+                plantKeywords = listOf("ghost", "foxfire", "spook", "pumpkin", "bat"),
+                itemKeywords = listOf("carving", "haunt", "lantern", "candy", "web"),
+            ),
         )
     }
 
-    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow", "Thunder", "Amber", "Rain")
-    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain")
+    val tabLabels = listOf("Seed", "Tool", "Egg", "Dawn", "Snow", "Thunder", "Amber", "Rain", "Spooky")
+    val tabTypes = listOf("seed", "tool", "egg", "dawn", "snow", "thunder", "amber", "rain", "spooky")
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current

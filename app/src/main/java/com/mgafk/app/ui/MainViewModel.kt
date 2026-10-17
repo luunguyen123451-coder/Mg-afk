@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import com.mgafk.app.data.AppJson
 import com.mgafk.app.data.AppLog
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -71,6 +72,7 @@ import com.mgafk.app.service.AfkService
 import com.mgafk.app.service.AfkWatchdogWorker
 import com.mgafk.app.service.AlertNotifier
 import com.mgafk.app.service.cancelResumeNotification
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -2661,6 +2663,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(watchlist = updated) }
         watchlistManagers.values.forEach { it.setItems(updated) }
         viewModelScope.launch { repo.saveWatchlist(updated) }
+    }
+
+    /** Serialize the current watchlist so it can be copied out and re-imported later. */
+    fun exportWatchlistJson(): String {
+        return try {
+            AppJson.storage.encodeToString(_state.value.watchlist)
+        } catch (e: Exception) {
+            AppLog.e("MainViewModel", "exportWatchlistJson failed", e)
+            ""
+        }
+    }
+
+    /** Replace the current watchlist from a previously exported JSON string. Returns false on bad input. */
+    fun importWatchlistJson(text: String): Boolean {
+        val parsed = try {
+            AppJson.storage.decodeFromString<List<WatchlistItem>>(text.trim())
+        } catch (e: Exception) {
+            AppLog.e("MainViewModel", "importWatchlistJson failed", e)
+            return false
+        }
+        _state.update { it.copy(watchlist = parsed) }
+        watchlistManagers.values.forEach { it.setItems(parsed) }
+        viewModelScope.launch { repo.saveWatchlist(parsed) }
+        return true
     }
 
     // ── Bad Luck Protection ────────────────────────────────────────────────

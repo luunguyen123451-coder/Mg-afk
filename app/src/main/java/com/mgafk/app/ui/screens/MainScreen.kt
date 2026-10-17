@@ -728,6 +728,8 @@ private fun SectionContent(
                 shops = session.shops,
                 onAdd = { shopType, itemId -> viewModel.addWatchlistItem(shopType, itemId) },
                 onRemove = { shopType, itemId -> viewModel.removeWatchlistItem(shopType, itemId) },
+                onExport = { viewModel.exportWatchlistJson() },
+                onImport = { text -> viewModel.importWatchlistJson(text) },
             )
 
             ShopsCards(
