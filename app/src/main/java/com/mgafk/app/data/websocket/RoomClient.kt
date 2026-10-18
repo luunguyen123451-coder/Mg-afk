@@ -397,8 +397,12 @@ class RoomClient {
 
     private fun handleMessage(raw: String) {
         if (raw == "ping" || raw == "\"ping\"") {
+            AppLog.d(TAG, "[PingDebug] got ping, sending pong")
             send("pong")
             return
+        }
+        if (raw.length < 40 && raw.contains("ing", ignoreCase = true)) {
+            AppLog.d(TAG, "[PingDebug] short unmatched message: $raw")
         }
 
         // TEMP: dump any raw message mentioning quests, chunked for logcat's line limit.
