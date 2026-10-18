@@ -9,6 +9,7 @@ import android.net.NetworkRequest
 import android.os.Build
 import com.mgafk.app.data.AppJson
 import com.mgafk.app.data.AppLog
+import com.mgafk.app.service.AutoStockTracker
 import coil.imageLoader
 import coil.request.ImageRequest
 import androidx.lifecycle.AndroidViewModel
@@ -458,6 +459,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun disconnectInternal(sessionId: String, stopServiceIfIdle: Boolean) {
         collectorJobs.remove(sessionId)?.cancel()
+        // A reconnect rebuilds the inventory from scratch, so a move that was stuck before
+        // deserves another go.
+        autoStockTracker.forget(sessionId)
         stateCollector.reset(sessionId)
         clients[sessionId]?.disconnect()
         // Bots are tied to the parent session - kill them when the user disconnects.
@@ -1372,30 +1376,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val actions = clients[sessionId]?.actions ?: return
         val settings = _state.value.settings
 
-        if (settings.autoStockSeedSilo && "SeedSilo" in availableStorages) {
-            val siloSpecies = siloSeeds.map { it.species }.toSet()
-            val toMove = invSeeds.filter { it.species in siloSpecies }
-            for (seed in toMove) {
-                actions.putItemInStorage(itemId = seed.species, storageId = "SeedSilo")
+        // Each move as the storage it targets and the key the game names the item by.
+        // Gathered first so the tracker can weed out the ones already asked for: auto-stock
+        // runs on every inventory change, and a move the server refuses leaves the item in
+        // place, so an unguarded retry never stops.
+        val moves = buildList {
+            if (settings.autoStockSeedSilo && "SeedSilo" in availableStorages) {
+                val siloSpecies = siloSeeds.map { it.species }.toSet()
+                invSeeds.filter { it.species in siloSpecies }
+                    .forEach { add("SeedSilo" to it.species) }
+            }
+            if (settings.autoStockDecorShed && "DecorShed" in availableStorages) {
+                val shedIds = shedDecors.map { it.decorId }.toSet()
+                invDecors.filter { it.decorId in shedIds }
+                    .forEach { add("DecorShed" to it.decorId) }
+            }
+            if (settings.autoStockToolShack && "ToolShack" in availableStorages) {
+                val shackIds = shackTools.map { it.toolId }.toSet()
+                invTools.filter { it.toolId in shackIds }
+                    .forEach { add("ToolShack" to it.toolId) }
             }
         }
 
-        if (settings.autoStockDecorShed && "DecorShed" in availableStorages) {
-            val shedIds = shedDecors.map { it.decorId }.toSet()
-            val toMove = invDecors.filter { it.decorId in shedIds }
-            for (decor in toMove) {
-                actions.putItemInStorage(itemId = decor.decorId, storageId = "DecorShed")
-            }
-        }
+        val worthSending = autoStockTracker
+            .pending(sessionId, moves.map { (storage, key) -> "$storage:$key" })
+            .toSet()
 
-        if (settings.autoStockToolShack && "ToolShack" in availableStorages) {
-            val shackIds = shackTools.map { it.toolId }.toSet()
-            val toMove = invTools.filter { it.toolId in shackIds }
-            for (tool in toMove) {
-                actions.putItemInStorage(itemId = tool.toolId, storageId = "ToolShack")
-            }
+        for ((storageId, itemKey) in moves) {
+            if ("$storageId:$itemKey" !in worthSending) continue
+            actions.putItemInStorage(itemId = itemKey, storageId = storageId)
         }
     }
+
+    /** See [AutoStockTracker]: keeps a refused move from being asked for on every update. */
+    private val autoStockTracker = AutoStockTracker()
 
     /** Sell all crops at once. */
     fun sellAllCrops(sessionId: String) {
