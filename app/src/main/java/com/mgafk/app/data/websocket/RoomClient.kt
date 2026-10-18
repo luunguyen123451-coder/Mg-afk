@@ -396,17 +396,9 @@ class RoomClient {
     }
 
     private fun handleMessage(raw: String) {
-        if (raw == "ping" || raw == "\"ping\"") {
-            send("pong")
+        heartbeatReply(raw)?.let { reply ->
+            send(reply)
             return
-        }
-
-        // TEMP: dump any raw message mentioning quests, chunked for logcat's line limit.
-        if (raw.contains("quest", ignoreCase = true)) {
-            val chunkSize = 3000
-            raw.chunked(chunkSize).forEachIndexed { i, chunk ->
-                AppLog.d(TAG, "[QuestDump] part=$i/${(raw.length + chunkSize - 1) / chunkSize} $chunk")
-            }
         }
 
         val msg: JsonObject = try {
@@ -528,7 +520,10 @@ class RoomClient {
     private fun handlePartialState(msg: JsonObject) {
         val patches = msg["patches"] as? JsonArray
 
-        // Check if any patch touches our player's activityLogs
+        // Look for new ability logs whenever anything in our own slot changed, not only when a
+        // patch names the log. Captured traffic says the server never names it: it replaces the
+        // whole slot every frame, with the new entries inside, so watching for the log's own
+        // path meant never looking at all.
         val userSlotIndex = gameState.findUserSlotIndex(playerId)
         val touchesLogs = userSlotIndex != null && patches?.any { el ->
             val path = (el as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull

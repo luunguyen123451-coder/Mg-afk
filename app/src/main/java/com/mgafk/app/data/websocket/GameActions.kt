@@ -84,11 +84,10 @@ class GameActions(
     }
 
     // =====================
-    // Session / Heartbeat
+    // Session
     // =====================
 
-    fun ping(id: Long = System.currentTimeMillis()) =
-        game("Ping", obj("id" to JsonPrimitive(id)))
+    // The heartbeat is not a game message any more: see heartbeatReply.
 
     // The web client names this field `gameName`, not `gameId`.
     fun setSelectedGame(gameName: String = GAME) =
@@ -160,11 +159,6 @@ class GameActions(
      * data, NOT from the shop key. The "tool" shop now mixes Tool entries
      * (WateringCan, Shovel) with Decor entries (SeedSilo, FeedingTrough),
      * so we can't infer itemType from the shop name anymore.
-     *
-     * Since bundle 1292 the server rejects a PurchaseShopItem without
-     * `viewMode` ("list" or "grid", the shop's display setting in the web
-     * client) as invalid_message. The app has no shop view, so it always
-     * sends "list", which the server accepts.
      */
     fun purchaseShopItem(shop: String, itemId: String) {
         val itemType = when {
@@ -174,6 +168,18 @@ class GameActions(
             MgApi.getDecors().containsKey(itemId) -> "Decor"
             else -> return
         }
+        purchaseShopItem(shop, itemType, itemId)
+    }
+
+    /**
+     * Since bundle 1292 the server rejects a PurchaseShopItem without `viewMode`
+     * ("list" or "grid", the shop's display setting in the web client) as
+     * invalid_message. The app has no shop view, so it always says "list",
+     * which the server accepts. The same bundle added an optional `quantity`
+     * for the game's Buy All; it is not sent here, because the game only uses
+     * it when the player can pay for the whole stack and has room for it.
+     */
+    internal fun purchaseShopItem(shop: String, itemType: String, itemId: String) {
         val idField = when (itemType) {
             "Seed" -> "species"
             "Tool" -> "toolId"
@@ -485,9 +491,6 @@ class GameActions(
     // Inventory / Storage
     // =====================
 
-    fun moveInventoryItem(moveItemId: String, toInventoryIndex: Int) =
-        game("MoveInventoryItem", obj("moveItemId" to JsonPrimitive(moveItemId), "toInventoryIndex" to JsonPrimitive(toInventoryIndex)))
-
     fun setSelectedItem(itemIndex: Int) =
         game("SetSelectedItem", obj("itemIndex" to JsonPrimitive(itemIndex)))
 
@@ -501,65 +504,47 @@ class GameActions(
 
     fun pickupObject() = game("PickupObject")
 
-    // toStorageIndex and quantity are both optional on the wire: the game leaves the index out
-    // when the item goes to the end of the storage, and only sends a quantity when moving part
-    // of a stack.
-    fun putItemInStorage(itemId: String, storageId: String, toStorageIndex: Int? = null, quantity: Int? = null) {
-        val params = buildJsonObject {
-            put("itemId", JsonPrimitive(itemId))
-            put("storageId", JsonPrimitive(storageId))
-            if (toStorageIndex != null) put("toStorageIndex", JsonPrimitive(toStorageIndex))
-            if (quantity != null) put("quantity", JsonPrimitive(quantity))
-        }
-        game("PutItemInStorage", params)
-    }
-
-    fun retrieveItemFromStorage(itemId: String, storageId: String, toInventoryIndex: Int? = null, quantity: Int? = null) {
-        val params = buildJsonObject {
-            put("itemId", JsonPrimitive(itemId))
-            put("storageId", JsonPrimitive(storageId))
-            if (toInventoryIndex != null) put("toInventoryIndex", JsonPrimitive(toInventoryIndex))
-            if (quantity != null) put("quantity", JsonPrimitive(quantity))
-        }
-        game("RetrieveItemFromStorage", params)
-    }
-
-    fun moveStorageItem(itemId: String, storageId: String, toStorageIndex: Int) =
-        game("MoveStorageItem", obj(
-            "itemId" to JsonPrimitive(itemId),
-            "storageId" to JsonPrimitive(storageId),
-            "toStorageIndex" to JsonPrimitive(toStorageIndex),
-        ))
-
     /**
-     * Exchanges an inventory item for a stored one in a single action, which keeps both
-     * capacities unchanged (unlike a retrieve followed by a put).
+     * Moves an item between the inventory and a storage, or reorders it inside one. Since
+     * bundle 1422 this single command replaces PutItemInStorage, RetrieveItemFromStorage,
+     * MoveStorageItem, MoveInventoryItem and SwapItemWithStorage.
      *
-     * [draggedQuantity] splits a stack: the game only sends it when the player drags part of
-     * one, and always alongside [draggedFromInventory] (which side the drag started on).
+     * [from] and [to] are [INVENTORY] or a storage id (PetHutch, SeedSilo, ...). One side must
+     * be the inventory, unless both name the same container, which reorders it. [itemId] is
+     * the key the game names the item by: the species, decor or tool id for a stack, the
+     * item's own id otherwise.
+     *
+     * The rest is optional and left off the wire when unset, as the game does. Without
+     * [beforeItemId] the item lands at the end. [quantity] moves part of a stack.
+     * [evictionItemId] swaps: that item goes from the destination back to the source in the
+     * same action, which keeps both capacities unchanged. A reorder takes neither of the two.
      */
-    fun swapItemWithStorage(
-        storageId: String,
-        inventoryItemId: String,
-        storageItemId: String,
-        toStorageIndex: Int? = null,
-        toInventoryIndex: Int? = null,
-        draggedQuantity: Int? = null,
-        draggedFromInventory: Boolean = false,
+    fun moveItem(
+        from: String,
+        to: String,
+        itemId: String,
+        quantity: Int? = null,
+        beforeItemId: String? = null,
+        evictionItemId: String? = null,
     ) {
         val params = buildJsonObject {
-            put("storageId", JsonPrimitive(storageId))
-            put("inventoryItemId", JsonPrimitive(inventoryItemId))
-            put("storageItemId", JsonPrimitive(storageItemId))
-            if (toStorageIndex != null) put("toStorageIndex", JsonPrimitive(toStorageIndex))
-            if (toInventoryIndex != null) put("toInventoryIndex", JsonPrimitive(toInventoryIndex))
-            if (draggedQuantity != null) {
-                put("draggedQuantity", JsonPrimitive(draggedQuantity))
-                put("draggedFromInventory", JsonPrimitive(draggedFromInventory))
-            }
+            put("from", JsonPrimitive(from))
+            put("to", JsonPrimitive(to))
+            put("itemId", JsonPrimitive(itemId))
+            if (quantity != null) put("quantity", JsonPrimitive(quantity))
+            if (beforeItemId != null) put("beforeItemId", JsonPrimitive(beforeItemId))
+            if (evictionItemId != null) put("evictionItemId", JsonPrimitive(evictionItemId))
         }
-        game("SwapItemWithStorage", params)
+        game("MoveItem", params)
     }
+
+    /** Moves a whole item or stack from the inventory to the end of [storageId]. */
+    fun putItemInStorage(itemId: String, storageId: String) =
+        moveItem(from = INVENTORY, to = storageId, itemId = itemId)
+
+    /** Moves a whole item or stack from [storageId] to the end of the inventory. */
+    fun retrieveItemFromStorage(itemId: String, storageId: String) =
+        moveItem(from = storageId, to = INVENTORY, itemId = itemId)
 
     fun logItems() = game("LogItems")
 
@@ -583,6 +568,9 @@ class GameActions(
     }
 
     companion object {
+        /** The [moveItem] side that names the inventory rather than a storage. */
+        const val INVENTORY = "inventory"
+
         private const val GAME = Constants.GAME_NAME
         private val ROOM_SCOPE = listOf("Room")
         private val GAME_SCOPE = listOf("Room", GAME)
@@ -598,15 +586,15 @@ class GameActions(
         /**
          * Quinoa messages the game still sends flat, as of client version 1029.
          *
-         * `Ping` answers Pong and `PlayerPosition` feeds the movement snapshot channel, so
-         * those two are not commands by nature; the rest simply have not been migrated yet.
+         * `PlayerPosition` feeds the movement snapshot channel, so it is not a command by
+         * nature; the rest simply have not been migrated yet. `Ping` used to be here too, until
+         * build 1625 moved the heartbeat to bare text frames (see [heartbeatReply]).
          * The game is moving them across one release at a time, so re-derive this list from
          * the bundle when a newly muted action shows up: the flat sender is
          * `sendMessage({scopePath:["Room","Quinoa"], ...msg})`, the command sender wraps the
          * message in a `QuinoaCommand` envelope.
          */
         private val RAW_MESSAGE_TYPES = setOf(
-            "Ping",
             "PlayerPosition",
             "Teleport",
             "SetSelectedItem",
